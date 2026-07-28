@@ -1,0 +1,1315 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f7f7f8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>todo. — 투두리스트</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+:root{
+  --bg:#f7f7f8; --card:#ffffff; --line:#ececee; --line2:#e3e3e6;
+  --txt:#191a1c; --sub:#9b9ea4; --faint:#c7cad0;
+  --danger:#e5484d; --r:20px;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{margin:0; padding:0;}
+body{
+  background:var(--bg); color:var(--txt);
+  font-family:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic',system-ui,sans-serif;
+  font-size:14.5px; line-height:1.5; letter-spacing:-0.01em;
+  touch-action:manipulation;
+  min-height:100vh;
+}
+body.lock{overflow:hidden;}
+button{font-family:inherit; font-size:inherit; color:inherit; background:none; border:none; padding:0; cursor:pointer;}
+input,select,textarea{font-family:inherit; color:inherit;}
+
+/* ---------- top bar ---------- */
+.top{max-width:1060px; margin:0 auto; padding:20px 18px 4px; display:flex; align-items:center; justify-content:space-between;}
+.logo{font-size:21px; font-weight:800; letter-spacing:-0.03em;}
+.logo span{color:#ff6b6b;}
+.top-actions{display:flex; gap:8px;}
+.hbtn{
+  border:1px solid var(--line2); background:var(--card); border-radius:999px;
+  padding:7px 14px; font-size:13px; font-weight:700; color:#3a3c40;
+  transition:box-shadow .15s, transform .05s;
+}
+.hbtn:hover{box-shadow:0 2px 8px rgba(0,0,0,.06);}
+.hbtn:active{transform:scale(.97);}
+.hbtn.icon{width:34px; height:34px; padding:0; display:inline-flex; align-items:center; justify-content:center; font-size:15px;}
+
+/* ---------- layout ---------- */
+.app{max-width:1060px; margin:0 auto; padding:14px 14px 60px; display:grid; gap:14px;}
+@media(min-width:900px){
+  .app{grid-template-columns:400px minmax(0,1fr); align-items:start; padding:14px 18px 60px;}
+  .panel.cal{position:sticky; top:16px;}
+}
+.panel{background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:20px;}
+
+/* ---------- calendar ---------- */
+.cal-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
+.cal-title{font-size:17px; font-weight:800; letter-spacing:-0.02em;}
+.cal-nav{display:flex; gap:4px;}
+.nav-btn{
+  width:30px; height:30px; border-radius:10px; display:inline-flex; align-items:center; justify-content:center;
+  font-size:17px; color:#5a5c60; font-weight:600;
+}
+.nav-btn:hover{background:#f2f2f4;}
+.today-btn{width:auto; padding:0 10px; font-size:12px; font-weight:700; color:#5a5c60; border:1px solid var(--line2);}
+.cal-week{display:grid; grid-template-columns:repeat(7,1fr); margin-bottom:4px;}
+.cal-week span{text-align:center; font-size:11px; font-weight:700; color:var(--sub); padding:4px 0;}
+.cal-week .sun{color:#e35b5b;} .cal-week .sat{color:#5b78e3;}
+.cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:2px;}
+.cal-cell{
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+  padding:5px 0 6px; border-radius:12px; transition:background .12s;
+}
+.cal-cell:hover{background:#f2f2f4;}
+.cal-cell .num{
+  font-size:13px; font-weight:600; width:27px; height:27px; line-height:27px;
+  text-align:center; border-radius:50%;
+}
+.cal-cell.sun .num{color:#e35b5b;} .cal-cell.sat .num{color:#5b78e3;}
+.cal-cell.out{opacity:.32;}
+.cal-cell.today .num{background:#ededf0;}
+.cal-cell.sel .num{background:var(--txt); color:#fff !important; font-weight:700;}
+.cal-cell .dots{display:flex; gap:2.5px; height:5px; align-items:center;}
+.dot{width:4.5px; height:4.5px; border-radius:50%;}
+.cal-cell.done-all .num{box-shadow:inset 0 0 0 1.5px var(--txt);}
+.cal-cell.sel.done-all .num{box-shadow:none;}
+
+/* ---------- list panel ---------- */
+.panel.list{min-height:440px;}
+.list-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
+.list-date{font-size:17px; font-weight:800; letter-spacing:-0.02em;}
+.list-progress{font-size:12.5px; font-weight:700; color:var(--sub);}
+.pbar{height:4px; background:#f0f0f2; border-radius:99px; margin:12px 0 18px; overflow:hidden;}
+.pbar i{display:block; height:100%; width:0; background:var(--txt); border-radius:99px; transition:width .25s ease;}
+
+.cat-block{margin-bottom:18px;}
+.cat-head{display:flex; align-items:center; gap:8px; margin-bottom:2px;}
+.cat-pill{
+  font-size:12.5px; font-weight:800; padding:4px 10px; border-radius:8px; letter-spacing:-0.01em;
+}
+.cat-pill.sm{font-size:11.5px; padding:3px 8px;}
+.cat-add{
+  margin-left:auto; width:26px; height:26px; border-radius:9px; font-size:17px; font-weight:500;
+  color:var(--faint); display:inline-flex; align-items:center; justify-content:center; line-height:1;
+}
+.cat-add:hover{color:var(--txt); background:#f2f2f4;}
+
+.todo{display:flex; align-items:flex-start; gap:11px; padding:8px 4px; border-radius:11px;}
+.todo:hover{background:#f8f8f9;}
+.chk{
+  flex:none; width:20px; height:20px; margin-top:1px; border-radius:7px;
+  border:2px solid #d8dade; display:inline-flex; align-items:center; justify-content:center;
+  transition:background .15s, border-color .15s;
+}
+.chk::after{
+  content:''; width:5px; height:9px; margin-top:-2px;
+  border:2.2px solid #fff; border-top:0; border-left:0; transform:rotate(42deg);
+  opacity:0; transition:opacity .12s;
+}
+.todo .chk:hover{border-color:#b9bcc2;}
+.todo.done .chk{background:var(--c); border-color:var(--c);}
+.todo.done .chk::after{opacity:1;}
+.t-body{flex:1; min-width:0; cursor:pointer; padding-top:1px;}
+.t-txt{font-size:15px; font-weight:500; word-break:break-all;}
+.todo.done .t-txt{color:#b9bcc2;}
+.rt{font-size:11px; color:var(--faint); margin-left:5px;}
+.t-memo{
+  font-size:12.5px; color:var(--sub); margin-top:4px; white-space:pre-wrap; word-break:break-all;
+  border-left:2px solid #ececee; padding-left:8px;
+}
+.todo.ghost{opacity:.45;}
+.todo.ghost:hover{opacity:.75; background:#f8f8f9;}
+.ghost-add{
+  flex:none; margin-left:auto; width:25px; height:25px; border-radius:9px;
+  border:1.5px solid var(--line2); color:#7a7d82; font-size:15px; line-height:1;
+  display:inline-flex; align-items:center; justify-content:center; background:#fff;
+}
+.ghost-add:hover{border-color:var(--txt); color:var(--txt);}
+.todo.new{background:#f8f8f9;}
+.new-input{
+  flex:1; border:none; outline:none; background:transparent; font-size:16px; font-weight:500;
+  border-bottom:2px solid var(--line2); padding:0 0 3px;
+}
+.new-input:focus{border-bottom-color:var(--txt);}
+
+.add-cat{
+  width:100%; margin-top:6px; padding:12px; border-radius:13px;
+  border:1.5px dashed var(--line2); color:var(--sub); font-size:13.5px; font-weight:700;
+}
+.add-cat:hover{color:var(--txt); border-color:#b9bcc2; background:#fafafa;}
+
+.empty{text-align:center; padding:52px 10px 40px; color:var(--sub);}
+.empty .big{font-size:30px; margin-bottom:10px;}
+.empty p{margin:0 0 18px; font-size:13.5px;}
+.empty-sm{text-align:center; color:var(--sub); font-size:13px; padding:22px 0;}
+
+/* ---------- bottom sheet / modal ---------- */
+.backdrop{
+  position:fixed; inset:0; background:rgba(20,20,22,.38); z-index:50;
+  opacity:0; pointer-events:none; transition:opacity .22s;
+}
+.backdrop.open{opacity:1; pointer-events:auto;}
+.sheet{
+  position:fixed; left:0; right:0; bottom:0; z-index:51;
+  max-width:540px; margin:0 auto; max-height:88vh; overflow-y:auto;
+  background:var(--card); border-radius:22px 22px 0 0; padding:8px 20px calc(22px + env(safe-area-inset-bottom));
+  transform:translateY(105%); transition:transform .26s cubic-bezier(.32,.72,.34,1);
+  box-shadow:0 -6px 40px rgba(0,0,0,.12);
+}
+.sheet.open{transform:translateY(0);}
+.grab{width:38px; height:4px; border-radius:99px; background:#e3e3e6; margin:6px auto 12px;}
+@media(min-width:900px){
+  .sheet{
+    bottom:auto; top:50%; left:50%; right:auto; width:460px; max-height:84vh;
+    border-radius:22px; padding:22px 22px 22px;
+    transform:translate(-50%,-46%) scale(.97); opacity:0; pointer-events:none;
+    transition:transform .2s ease, opacity .2s ease;
+    box-shadow:0 20px 60px rgba(0,0,0,.18);
+  }
+  .sheet.open{transform:translate(-50%,-50%) scale(1); opacity:1; pointer-events:auto;}
+  .grab{display:none;}
+}
+.sh-head{padding:2px 4px 12px; border-bottom:1px solid #f2f2f4; margin-bottom:8px;}
+.sh-head .sh-title{margin-top:8px;}
+.sh-title{font-size:16.5px; font-weight:800; letter-spacing:-0.02em; padding:2px 4px; word-break:break-all;}
+.opt{
+  display:block; width:100%; text-align:left; padding:14px 12px; border-radius:13px;
+  font-size:15px; font-weight:600;
+}
+.opt:hover{background:#f6f6f7;}
+.opt.danger{color:var(--danger);}
+.opt-sub{display:block; font-size:12px; font-weight:500; color:var(--sub); margin-top:3px;}
+.opt.danger .opt-sub{color:#e5484d99;}
+.armed{background:#fdecec !important;}
+
+.lbl{display:block; font-size:12.5px; font-weight:800; color:var(--sub); margin:16px 4px 7px;}
+.inp{
+  width:100%; border:1.5px solid var(--line2); border-radius:13px; background:#fff;
+  padding:12px 14px; font-size:16px; outline:none; transition:border-color .12s;
+}
+.inp:focus{border-color:var(--txt);}
+textarea.inp{min-height:110px; resize:vertical; line-height:1.55;}
+select.inp{appearance:none; -webkit-appearance:none; background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239b9ea4' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 14px center;}
+.row{display:flex; gap:8px; margin-top:18px;}
+.btn{
+  flex:1; background:var(--txt); color:#fff; border-radius:13px; padding:13px 16px;
+  font-size:14.5px; font-weight:800; text-align:center; transition:opacity .12s, transform .05s;
+}
+.btn:hover{opacity:.88;} .btn:active{transform:scale(.98);}
+.btn.ghostb{background:#f2f2f4; color:#3a3c40;}
+.btn.full{width:100%; margin-top:14px;}
+.hint{font-size:12.5px; color:var(--sub); margin:6px 4px 2px; line-height:1.55;}
+.err{font-size:12.5px; color:var(--danger); margin:8px 4px 0; min-height:1em;}
+
+/* palette / chips */
+.palette{display:grid; grid-template-columns:repeat(6,1fr); gap:12px; padding:4px 2px;}
+.sw{width:32px; height:32px; border-radius:50%; margin:0 auto; transition:transform .1s;}
+.sw:hover{transform:scale(1.12);}
+.sw.on{outline:2.5px solid var(--txt); outline-offset:2.5px;}
+.wchips{display:flex; gap:7px; flex-wrap:wrap;}
+.wchip{
+  width:36px; height:36px; border-radius:50%; border:1.5px solid var(--line2);
+  font-size:13px; font-weight:700; color:#5a5c60;
+}
+.wchip.on{background:var(--txt); border-color:var(--txt); color:#fff;}
+.mdays{display:grid; grid-template-columns:repeat(7,1fr); gap:5px;}
+.mday{
+  height:32px; border-radius:9px; border:1.5px solid var(--line2);
+  font-size:12.5px; font-weight:700; color:#5a5c60;
+}
+.mday.on{background:var(--txt); border-color:var(--txt); color:#fff;}
+
+/* routine list */
+.r-list{margin-top:4px;}
+.r-item{display:flex; align-items:center; gap:10px; padding:13px 2px; border-bottom:1px solid #f2f2f4;}
+.r-item:last-child{border-bottom:none;}
+.r-info{flex:1; min-width:0; display:flex; align-items:flex-start; gap:8px;}
+.r-txt{font-size:14.5px; font-weight:600; word-break:break-all;}
+.r-freq{font-size:12px; color:var(--sub); margin-top:2px;}
+.r-actions{flex:none; display:flex; align-items:center; gap:10px;}
+.tgl{width:42px; height:25px; border-radius:99px; background:#e2e2e6; position:relative; transition:background .18s;}
+.tgl::after{
+  content:''; position:absolute; top:3px; left:3px; width:19px; height:19px; border-radius:50%;
+  background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.18); transition:transform .18s;
+}
+.tgl.on{background:var(--txt);}
+.tgl.on::after{transform:translateX(17px);}
+.icon-btn{font-size:12.5px; font-weight:700; color:var(--sub); padding:6px 9px; border-radius:9px;}
+.icon-btn:hover{background:#f6f6f7;}
+.icon-btn.danger{color:var(--danger);}
+
+/* settings */
+.status{background:#f6f6f7; border-radius:13px; padding:13px 15px; font-size:13.5px; font-weight:600; margin:6px 0 4px; word-break:break-all;}
+.guide{margin-top:18px; border-top:1px solid #f2f2f4; padding-top:14px;}
+.guide summary{font-size:13.5px; font-weight:800; color:#3a3c40; cursor:pointer; padding:4px;}
+.guide ol{margin:10px 0 6px; padding-left:20px; font-size:13px; color:#4a4c50; line-height:1.7;}
+.guide pre{
+  background:#f6f6f7; border-radius:11px; padding:12px; font-size:11px; line-height:1.5;
+  overflow-x:auto; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+.guide code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; background:#f0f0f2; padding:1px 5px; border-radius:5px;}
+
+/* toast */
+.toast{
+  position:fixed; left:50%; bottom:calc(26px + env(safe-area-inset-bottom)); transform:translate(-50%,14px);
+  background:rgba(25,26,28,.92); color:#fff; font-size:13.5px; font-weight:600;
+  padding:11px 18px; border-radius:999px; z-index:70; opacity:0; pointer-events:none;
+  transition:opacity .2s, transform .2s; max-width:86vw; text-align:center;
+}
+.toast.show{opacity:1; transform:translate(-50%,0);}
+
+::-webkit-scrollbar{width:8px; height:8px;}
+::-webkit-scrollbar-thumb{background:#dcdce0; border-radius:99px;}
+:focus-visible{outline:2px solid #191a1c; outline-offset:2px;}
+.cal-cell:focus-visible{outline-offset:-2px;}
+@media (prefers-reduced-motion: reduce){
+  *{transition:none !important; animation:none !important;}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="logo">todo<span>.</span></div>
+  <div class="top-actions">
+    <button class="hbtn" id="btn-routines">루틴</button>
+    <button class="hbtn icon" id="btn-settings" title="동기화 설정" aria-label="동기화 설정">⚙</button>
+  </div>
+</header>
+
+<main class="app">
+  <section class="panel cal">
+    <div class="cal-head">
+      <div class="cal-title" id="cal-title"></div>
+      <div class="cal-nav">
+        <button class="nav-btn" id="cal-prev" aria-label="이전 달">‹</button>
+        <button class="nav-btn today-btn" id="cal-today">오늘</button>
+        <button class="nav-btn" id="cal-next" aria-label="다음 달">›</button>
+      </div>
+    </div>
+    <div class="cal-week">
+      <span class="sun">일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="sat">토</span>
+    </div>
+    <div class="cal-grid" id="cal-grid"></div>
+  </section>
+
+  <section class="panel list" id="list">
+    <div class="list-head">
+      <div class="list-date" id="list-date"></div>
+      <div class="list-progress" id="list-progress"></div>
+    </div>
+    <div class="pbar" id="pbar"><i id="pbar-fill"></i></div>
+    <div id="cat-list"></div>
+    <button class="add-cat" id="add-cat-btn">+ 카테고리 추가</button>
+  </section>
+</main>
+
+<div class="backdrop" id="backdrop"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true"><div class="grab"></div><div id="sheet-content"></div></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script type="module">
+/* =====================================================
+   todo.  —  투두메이트 스타일 투두리스트
+   로컬 모드(localStorage) + Firebase(Firestore/Auth) 동기화
+   ===================================================== */
+
+// ---------- safe storage (미리보기 등 localStorage 불가 환경 대비) ----------
+let storageIsMemory = false;
+const storage = (() => {
+  try {
+    localStorage.setItem('__t', '1');
+    localStorage.removeItem('__t');
+    return localStorage;
+  } catch (e) {
+    storageIsMemory = true;
+    const m = {};
+    return {
+      getItem: k => (k in m ? m[k] : null),
+      setItem: (k, v) => { m[k] = String(v); },
+      removeItem: k => { delete m[k]; },
+    };
+  }
+})();
+
+const K_DATA = 'tdm_data';
+const K_CFG  = 'tdm_cfg';
+
+// ---------- utils ----------
+const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2, '0');
+const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const parseDate = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const addDaysStr = (s, n) => fmt(addDays(parseDate(s), n));
+const todayStr = () => fmt(new Date());
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const WD = '일월화수목금토';
+const PALETTE = ['#ff6b6b','#ff922b','#fcc419','#94d82d','#38d9a9','#22b8cf','#4dabf7','#748ffc','#9775fa','#f783ac','#a9a29c','#495057'];
+
+function startOfWeek(d) { const x = new Date(d); x.setDate(x.getDate() - x.getDay()); x.setHours(0, 0, 0, 0); return x; }
+function gridRange(monthDate) {
+  const first = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const gs = startOfWeek(first);
+  return { gs, ge: addDays(gs, 41) };
+}
+
+let toastT = null;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => t.classList.remove('show'), 2300);
+}
+
+// ---------- state ----------
+const now = new Date();
+const state = {
+  cats: [], todos: [], routines: [],
+  month: new Date(now.getFullYear(), now.getMonth(), 1),
+  selected: todayStr(),
+  addingCat: null,
+  focusNew: false,
+};
+
+// ---------- local persistence ----------
+function loadLocalRaw() {
+  try {
+    const d = JSON.parse(storage.getItem(K_DATA) || 'null');
+    if (d && Array.isArray(d.cats)) return { cats: d.cats, todos: d.todos || [], routines: d.routines || [] };
+  } catch (e) {}
+  return { cats: [], todos: [], routines: [] };
+}
+function loadLocal() {
+  const d = loadLocalRaw();
+  state.cats = d.cats; state.todos = d.todos; state.routines = d.routines;
+}
+function saveLocal() {
+  storage.setItem(K_DATA, JSON.stringify({ cats: state.cats, todos: state.todos, routines: state.routines }));
+}
+
+// ---------- Firebase ----------
+const FB_VER = '10.12.2';
+const FB_URL = n => `https://www.gstatic.com/firebasejs/${FB_VER}/firebase-${n}.js`;
+const FB = { app: null, db: null, auth: null, user: null, fns: null, unsubs: [], todoUnsub: null };
+let localBackup = null;
+let migChecked = false;
+
+const cloud = () => !!FB.user;
+
+async function connectFirebase(cfg) {
+  try {
+    const [appM, authM, fsM] = await Promise.all([import(FB_URL('app')), import(FB_URL('auth')), import(FB_URL('firestore'))]);
+    FB.fns = { app: appM, auth: authM, fs: fsM };
+    FB.app = appM.initializeApp(cfg);
+    try {
+      FB.db = fsM.initializeFirestore(FB.app, { localCache: fsM.persistentLocalCache() });
+    } catch (e) {
+      FB.db = fsM.getFirestore(FB.app);
+    }
+    FB.auth = authM.getAuth(FB.app);
+    authM.onAuthStateChanged(FB.auth, u => {
+      FB.user = u;
+      if (u) {
+        subscribeCloud();
+      } else {
+        unsubCloud();
+        migChecked = false;
+        loadLocal();
+        render();
+      }
+      if (sheetCtx && sheetCtx.type === 'settings') sheetSettings();
+    });
+    return true;
+  } catch (err) {
+    console.error('[firebase]', err);
+    toast('Firebase 연결에 실패했어요 · 로컬 모드로 동작합니다');
+    return false;
+  }
+}
+
+function unsubCloud() {
+  FB.unsubs.forEach(u => { try { u(); } catch (e) {} });
+  FB.unsubs = [];
+  if (FB.todoUnsub) { try { FB.todoUnsub(); } catch (e) {} FB.todoUnsub = null; }
+}
+
+function fbCol(name) {
+  return FB.fns.fs.collection(FB.db, 'users', FB.user.uid, name);
+}
+
+function subscribeCloud() {
+  unsubCloud();
+  localBackup = loadLocalRaw();
+  state.cats = []; state.todos = []; state.routines = [];
+  const { onSnapshot } = FB.fns.fs;
+  FB.unsubs.push(onSnapshot(fbCol('categories'), s => {
+    state.cats = s.docs.map(d => d.data());
+    render();
+    maybeOfferMigration();
+  }, e => console.error(e)));
+  FB.unsubs.push(onSnapshot(fbCol('routines'), s => {
+    state.routines = s.docs.map(d => d.data());
+    render();
+    if (sheetCtx && sheetCtx.type === 'routines') sheetRoutines();
+  }, e => console.error(e)));
+  subTodosRange();
+}
+
+function subTodosRange() {
+  if (FB.todoUnsub) { try { FB.todoUnsub(); } catch (e) {} FB.todoUnsub = null; }
+  if (!cloud()) return;
+  const { onSnapshot, query, where } = FB.fns.fs;
+  const { gs, ge } = gridRange(state.month);
+  const q = query(fbCol('todos'), where('date', '>=', fmt(gs)), where('date', '<=', fmt(ge)));
+  FB.todoUnsub = onSnapshot(q, s => {
+    state.todos = s.docs.map(d => d.data());
+    render();
+  }, e => console.error(e));
+}
+
+function maybeOfferMigration() {
+  if (migChecked || !FB.user) return;
+  migChecked = true;
+  const flagK = 'tdm_mig_' + FB.user.uid;
+  if (storage.getItem(flagK)) return;
+  storage.setItem(flagK, '1');
+  if (state.cats.length > 0) return;
+  const lb = localBackup || { cats: [], todos: [], routines: [] };
+  const n = lb.cats.length + lb.todos.length + lb.routines.length;
+  if (!n) return;
+  sheetConfirm(
+    '로컬 데이터 옮기기',
+    `이 기기에 저장돼 있던 카테고리 ${lb.cats.length}개 · 할 일 ${lb.todos.length}개 · 루틴 ${lb.routines.length}개를 지금 로그인한 계정으로 업로드할까요?`,
+    '업로드',
+    async () => {
+      try {
+        await migrateLocal(lb);
+        toast('로컬 데이터를 계정으로 옮겼어요');
+      } catch (e) {
+        console.error(e);
+        toast('업로드 중 오류가 발생했어요');
+      }
+      closeSheet();
+    }
+  );
+}
+
+async function migrateLocal(lb) {
+  const { writeBatch, doc } = FB.fns.fs;
+  const groups = [['categories', lb.cats], ['todos', lb.todos], ['routines', lb.routines]];
+  let batch = writeBatch(FB.db), n = 0;
+  for (const [col, arr] of groups) {
+    for (const o of arr) {
+      batch.set(doc(fbCol(col), o.id), o);
+      if (++n % 400 === 0) { await batch.commit(); batch = writeBatch(FB.db); }
+    }
+  }
+  await batch.commit();
+}
+
+const oops = e => { console.error(e); toast('저장 중 오류가 발생했어요'); };
+
+// ---------- store (로컬/클라우드 공용 API) ----------
+const store = {
+  addCategory({ name, color }) {
+    const c = { id: uid(), name, color, order: Date.now(), createdAt: Date.now() };
+    if (cloud()) FB.fns.fs.setDoc(FB.fns.fs.doc(fbCol('categories'), c.id), c).catch(oops);
+    else { state.cats.push(c); saveLocal(); render(); }
+    return c;
+  },
+  updateCategory(id, patch) {
+    if (cloud()) FB.fns.fs.updateDoc(FB.fns.fs.doc(fbCol('categories'), id), patch).catch(oops);
+    else { const c = state.cats.find(x => x.id === id); if (c) Object.assign(c, patch); saveLocal(); render(); }
+  },
+  async deleteCategory(id) {
+    if (cloud()) {
+      try {
+        const { getDocs, query, where, writeBatch, doc } = FB.fns.fs;
+        const [ts, rs] = await Promise.all([
+          getDocs(query(fbCol('todos'), where('categoryId', '==', id))),
+          getDocs(query(fbCol('routines'), where('categoryId', '==', id))),
+        ]);
+        const b = writeBatch(FB.db);
+        ts.forEach(d => b.delete(d.ref));
+        rs.forEach(d => b.delete(d.ref));
+        b.delete(doc(fbCol('categories'), id));
+        await b.commit();
+      } catch (e) { oops(e); }
+    } else {
+      state.cats = state.cats.filter(c => c.id !== id);
+      state.todos = state.todos.filter(t => t.categoryId !== id);
+      state.routines = state.routines.filter(r => r.categoryId !== id);
+      saveLocal(); render();
+    }
+  },
+  addTodo({ categoryId, text, date = state.selected, routineId = null, memo = '' }) {
+    const t = { id: uid(), date, categoryId, text, done: false, memo, routineId, order: Date.now(), createdAt: Date.now() };
+    if (cloud()) FB.fns.fs.setDoc(FB.fns.fs.doc(fbCol('todos'), t.id), t).catch(oops);
+    else { state.todos.push(t); saveLocal(); render(); }
+    return t;
+  },
+  updateTodo(id, patch) {
+    if (cloud()) FB.fns.fs.updateDoc(FB.fns.fs.doc(fbCol('todos'), id), patch).catch(oops);
+    else { const t = state.todos.find(x => x.id === id); if (t) Object.assign(t, patch); saveLocal(); render(); }
+  },
+  deleteTodo(id) {
+    if (cloud()) FB.fns.fs.deleteDoc(FB.fns.fs.doc(fbCol('todos'), id)).catch(oops);
+    else { state.todos = state.todos.filter(t => t.id !== id); saveLocal(); render(); }
+  },
+  addRoutine(data) {
+    const r = { id: uid(), active: true, createdAt: Date.now(), ...data };
+    if (cloud()) FB.fns.fs.setDoc(FB.fns.fs.doc(fbCol('routines'), r.id), r).catch(oops);
+    else { state.routines.push(r); saveLocal(); render(); }
+    return r;
+  },
+  updateRoutine(id, patch) {
+    if (cloud()) FB.fns.fs.updateDoc(FB.fns.fs.doc(fbCol('routines'), id), patch).catch(oops);
+    else { const r = state.routines.find(x => x.id === id); if (r) Object.assign(r, patch); saveLocal(); render(); }
+  },
+  deleteRoutine(id) {
+    if (cloud()) FB.fns.fs.deleteDoc(FB.fns.fs.doc(fbCol('routines'), id)).catch(oops);
+    else { state.routines = state.routines.filter(r => r.id !== id); saveLocal(); render(); }
+  },
+};
+
+// ---------- routine logic ----------
+function routineMatches(r, dateStr) {
+  if (r.active === false) return false;
+  if (r.start && dateStr < r.start) return false;
+  const d = parseDate(dateStr);
+  switch (r.freq) {
+    case 'daily': return true;
+    case 'weekly': return (r.weekdays || []).includes(d.getDay());
+    case 'biweekly': {
+      if (!(r.weekdays || []).includes(d.getDay())) return false;
+      const anchor = r.start ? parseDate(r.start) : d;
+      const w = Math.round((startOfWeek(d) - startOfWeek(anchor)) / 604800000);
+      return ((w % 2) + 2) % 2 === 0;
+    }
+    case 'monthly': return (r.monthDays || []).includes(d.getDate());
+  }
+  return false;
+}
+function freqLabel(r) {
+  if (r.freq === 'daily') return '매일';
+  if (r.freq === 'weekly') return '매주 ' + (r.weekdays || []).map(i => WD[i]).join('·');
+  if (r.freq === 'biweekly') return '격주 ' + (r.weekdays || []).map(i => WD[i]).join('·');
+  if (r.freq === 'monthly') return '매월 ' + (r.monthDays || []).join('·') + '일';
+  return '';
+}
+function catColor(id) {
+  const c = state.cats.find(x => x.id === id);
+  return c ? c.color : '#c7cad0';
+}
+
+// ---------- render: calendar ----------
+function renderCalendar() {
+  const y = state.month.getFullYear(), m = state.month.getMonth();
+  $('#cal-title').textContent = `${y}년 ${m + 1}월`;
+  const { gs } = gridRange(state.month);
+  const map = {};
+  for (const t of state.todos) {
+    const e = (map[t.date] ||= { colors: [], total: 0, done: 0 });
+    e.total++; if (t.done) e.done++;
+    const c = catColor(t.categoryId);
+    if (!e.colors.includes(c)) e.colors.push(c);
+  }
+  const tstr = todayStr();
+  let html = '';
+  for (let i = 0; i < 42; i++) {
+    const d = addDays(gs, i);
+    const ds = fmt(d);
+    const e = map[ds];
+    const cls = ['cal-cell',
+      d.getMonth() !== m && 'out',
+      ds === tstr && 'today',
+      ds === state.selected && 'sel',
+      d.getDay() === 0 && 'sun',
+      d.getDay() === 6 && 'sat',
+      (e && e.total > 0 && e.done === e.total) && 'done-all',
+    ].filter(Boolean).join(' ');
+    const dots = e ? e.colors.slice(0, 4).map(c => `<i class="dot" style="background:${c}"></i>`).join('') : '';
+    html += `<button class="${cls}" data-date="${ds}"><span class="num">${d.getDate()}</span><span class="dots">${dots}</span></button>`;
+  }
+  $('#cal-grid').innerHTML = html;
+}
+
+// ---------- render: list ----------
+const todoRow = (t, c) => `
+  <div class="todo${t.done ? ' done' : ''}" style="--c:${c}">
+    <button class="chk" data-toggle="${t.id}" aria-label="완료 표시"></button>
+    <div class="t-body" data-menu="${t.id}">
+      <div class="t-txt">${esc(t.text)}${t.routineId ? '<span class="rt">↻</span>' : ''}</div>
+      ${t.memo ? `<div class="t-memo">${esc(t.memo)}</div>` : ''}
+    </div>
+  </div>`;
+
+const ghostRow = (r, c) => `
+  <div class="todo ghost" style="--c:${c}">
+    <span class="chk"></span>
+    <div class="t-body"><div class="t-txt">${esc(r.text)}<span class="rt">↻ ${freqLabel(r)}</span></div></div>
+    <button class="ghost-add" data-ghost="${r.id}" title="할 일로 추가">+</button>
+  </div>`;
+
+function renderList() {
+  const prevInp = document.getElementById('new-todo-input');
+  const keepVal = prevInp ? prevInp.value : '';
+  const keepFocus = prevInp && document.activeElement === prevInp;
+
+  const dsel = state.selected;
+  const d = parseDate(dsel);
+  $('#list-date').textContent = `${d.getMonth() + 1}월 ${d.getDate()}일 ${WD[d.getDay()]}요일`;
+
+  const todos = state.todos.filter(t => t.date === dsel);
+  const doneN = todos.filter(t => t.done).length;
+  $('#list-progress').textContent = todos.length ? `${doneN} / ${todos.length}` : '';
+  $('#pbar').style.display = todos.length ? '' : 'none';
+  $('#pbar-fill').style.width = todos.length ? Math.round(doneN / todos.length * 100) + '%' : '0';
+
+  const cats = [...state.cats].sort((a, b) => (a.order || 0) - (b.order || 0));
+  const box = $('#cat-list');
+
+  if (!cats.length) {
+    box.innerHTML = `
+      <div class="empty">
+        <div class="big">🗂️</div>
+        <p>카테고리를 만들어 하루를 정리해 보세요.<br>예) 일상 · 공부 · 운동 · 회사</p>
+        <button class="btn" data-newcat style="flex:none; padding:12px 22px;">첫 카테고리 만들기</button>
+      </div>`;
+    return;
+  }
+
+  box.innerHTML = cats.map(cat => {
+    const c = cat.color;
+    const items = todos.filter(t => t.categoryId === cat.id).sort((a, b) => (a.order || 0) - (b.order || 0));
+    const ghosts = state.routines
+      .filter(r => r.categoryId === cat.id && routineMatches(r, dsel) && !todos.some(t => t.routineId === r.id))
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    return `
+    <section class="cat-block">
+      <div class="cat-head">
+        <button class="cat-pill" data-cat="${cat.id}" style="color:${c}; background:${c}1a">${esc(cat.name)}</button>
+        <button class="cat-add" data-add="${cat.id}" title="할 일 추가" aria-label="할 일 추가">+</button>
+      </div>
+      ${items.map(t => todoRow(t, c)).join('')}
+      ${ghosts.map(r => ghostRow(r, c)).join('')}
+      ${state.addingCat === cat.id ? `
+      <div class="todo new" style="--c:${c}">
+        <span class="chk" style="border-color:${c}"></span>
+        <input id="new-todo-input" class="new-input" data-cat="${cat.id}"
+               placeholder="할 일 입력 후 Enter" autocomplete="off" enterkeyhint="done">
+      </div>` : ''}
+    </section>`;
+  }).join('');
+
+  const inp = document.getElementById('new-todo-input');
+  if (inp) {
+    inp.value = keepVal;
+    if (keepFocus || state.focusNew) {
+      inp.focus();
+      try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (e) {}
+      state.focusNew = false;
+    }
+  }
+}
+
+function render() { renderCalendar(); renderList(); }
+
+// ---------- sheet (바텀시트/모달) ----------
+const sheetEl = $('#sheet');
+const backdrop = $('#backdrop');
+let sheetCtx = null;
+
+function openSheet(html, ctx) {
+  sheetCtx = ctx || null;
+  $('#sheet-content').innerHTML = html;
+  sheetEl.classList.add('open');
+  backdrop.classList.add('open');
+  document.body.classList.add('lock');
+  sheetEl.scrollTop = 0;
+}
+function closeSheet() {
+  sheetCtx = null;
+  sheetEl.classList.remove('open');
+  backdrop.classList.remove('open');
+  document.body.classList.remove('lock');
+}
+backdrop.addEventListener('click', closeSheet);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && sheetEl.classList.contains('open')) closeSheet(); });
+
+const pillHtml = (cat, sm) => cat
+  ? `<span class="cat-pill${sm ? ' sm' : ''}" style="color:${cat.color}; background:${cat.color}1a">${esc(cat.name)}</span>`
+  : '';
+
+// --- 할 일 메뉴 ---
+function sheetTodoMenu(t) {
+  const cat = state.cats.find(c => c.id === t.categoryId);
+  openSheet(`
+    <div class="sh-head">${pillHtml(cat, true)}<div class="sh-title">${esc(t.text)}</div></div>
+    <button class="opt" data-o="edit">✏️&nbsp; 수정하기</button>
+    <button class="opt danger" data-o="del" data-confirm>🗑️&nbsp; 삭제하기</button>
+    <button class="opt" data-o="memo">📝&nbsp; 메모${t.memo ? '<span class="opt-sub">' + esc(t.memo.length > 40 ? t.memo.slice(0, 40) + '…' : t.memo) + '</span>' : ''}</button>
+    <button class="opt" data-o="tomorrow">➡️&nbsp; 내일 또 하기</button>
+    <button class="opt" data-o="other">📅&nbsp; 다른 날 또 하기</button>
+  `, { type: 'todo', id: t.id });
+}
+
+function sheetEditTodo(t) {
+  openSheet(`
+    <div class="sh-title">수정하기</div>
+    <input id="edit-inp" class="inp" style="margin-top:12px" value="${esc(t.text)}" autocomplete="off">
+    <div class="row">
+      <button class="btn ghostb" data-o="cancel">취소</button>
+      <button class="btn" data-o="save-edit">저장</button>
+    </div>
+  `, { type: 'edit', id: t.id });
+  const i = $('#edit-inp'); i.focus(); try { i.setSelectionRange(i.value.length, i.value.length); } catch (e) {}
+}
+
+function sheetMemo(t) {
+  openSheet(`
+    <div class="sh-title">메모</div>
+    <p class="hint">「${esc(t.text)}」에 대한 메모예요. 비우고 저장하면 메모가 지워져요.</p>
+    <textarea id="memo-inp" class="inp" style="margin-top:8px" placeholder="메모를 입력하세요">${esc(t.memo || '')}</textarea>
+    <div class="row">
+      <button class="btn ghostb" data-o="cancel">취소</button>
+      <button class="btn" data-o="save-memo">저장</button>
+    </div>
+  `, { type: 'memo', id: t.id });
+  $('#memo-inp').focus();
+}
+
+function sheetPickDate(t) {
+  openSheet(`
+    <div class="sh-title">다른 날 또 하기</div>
+    <p class="hint">「${esc(t.text)}」을(를) 추가할 날짜를 골라주세요.</p>
+    <input type="date" id="pick-date" class="inp" style="margin-top:8px" value="${addDaysStr(t.date, 1)}">
+    <div class="row">
+      <button class="btn ghostb" data-o="cancel">취소</button>
+      <button class="btn" data-o="save-date">추가</button>
+    </div>
+  `, { type: 'pickdate', id: t.id });
+}
+
+// --- 카테고리 ---
+function sheetCatMenu(id) {
+  const c = state.cats.find(x => x.id === id);
+  if (!c) return;
+  openSheet(`
+    <div class="sh-head">${pillHtml(c)}</div>
+    <button class="opt" data-o="cat-edit">✏️&nbsp; 수정하기</button>
+    <button class="opt danger" data-o="cat-del" data-confirm data-arm-label="한 번 더 누르면 모두 삭제됩니다">🗑️&nbsp; 삭제하기<span class="opt-sub">이 카테고리의 할 일과 루틴이 함께 삭제돼요</span></button>
+  `, { type: 'cat', id });
+}
+
+function sheetCatForm(cat) {
+  const usedLess = PALETTE.find(p => !state.cats.some(c => c.color === p));
+  const color = cat ? cat.color : (usedLess || PALETTE[state.cats.length % PALETTE.length]);
+  const sws = PALETTE.map(p => `<button class="sw ${p === color ? 'on' : ''}" data-color="${p}" style="background:${p}" aria-label="색상 ${p}"></button>`).join('');
+  openSheet(`
+    <div class="sh-title">${cat ? '카테고리 수정' : '새 카테고리'}</div>
+    <label class="lbl" for="cf-name">이름</label>
+    <input id="cf-name" class="inp" placeholder="예: 운동" value="${cat ? esc(cat.name) : ''}" autocomplete="off">
+    <label class="lbl">색상</label>
+    <div class="palette">${sws}</div>
+    <div class="row">
+      <button class="btn ghostb" data-o="cancel">취소</button>
+      <button class="btn" data-o="save-cat">저장</button>
+    </div>
+  `, { type: 'catform', id: cat ? cat.id : null, color });
+  $('#cf-name').focus();
+}
+
+// --- 루틴 ---
+function sheetRoutines() {
+  const rows = [...state.routines].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).map(r => {
+    const c = state.cats.find(x => x.id === r.categoryId);
+    return `
+    <div class="r-item">
+      <div class="r-info">
+        ${pillHtml(c, true)}
+        <div style="min-width:0">
+          <div class="r-txt">${esc(r.text)}</div>
+          <div class="r-freq">${freqLabel(r)} · ${r.start || ''}부터</div>
+        </div>
+      </div>
+      <div class="r-actions">
+        <button class="tgl ${r.active !== false ? 'on' : ''}" data-rtoggle="${r.id}" title="루틴 켜기/끄기" aria-label="루틴 켜기/끄기"></button>
+        <button class="icon-btn danger" data-rdel="${r.id}" data-confirm data-arm-label="삭제 확인">삭제</button>
+      </div>
+    </div>`;
+  }).join('');
+  openSheet(`
+    <div class="sh-title">루틴 관리</div>
+    <p class="hint">루틴은 반복되는 날짜에 흐리게 표시돼요. 옆의 <b>+</b> 버튼을 눌러야 그날의 할 일로 추가됩니다. 루틴을 지워도 이미 추가한 할 일은 남아요.</p>
+    <div class="r-list">${rows || '<div class="empty-sm">아직 루틴이 없어요</div>'}</div>
+    <button class="btn full" data-o="new-routine">+ 새 루틴 만들기</button>
+  `, { type: 'routines' });
+}
+
+function readRoutineForm() {
+  return {
+    categoryId: $('#rf-cat') ? $('#rf-cat').value : null,
+    text: $('#rf-text') ? $('#rf-text').value : '',
+    freq: $('#rf-freq') ? $('#rf-freq').value : 'daily',
+    weekdays: [...sheetEl.querySelectorAll('.wchip.on')].map(x => +x.dataset.w),
+    monthDays: [...sheetEl.querySelectorAll('.mday.on')].map(x => +x.dataset.d),
+    start: ($('#rf-start') && $('#rf-start').value) || todayStr(),
+  };
+}
+
+function sheetRoutineForm(rf) {
+  const t = new Date();
+  rf = rf || {
+    categoryId: state.cats[0] ? state.cats[0].id : null,
+    text: '', freq: 'daily',
+    weekdays: [t.getDay()], monthDays: [t.getDate()], start: todayStr(),
+  };
+  if (!rf.weekdays.length) rf.weekdays = [t.getDay()];
+  if (!rf.monthDays.length) rf.monthDays = [t.getDate()];
+  const catOpts = state.cats.map(c => `<option value="${c.id}" ${c.id === rf.categoryId ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  const sel = v => rf.freq === v ? ' selected' : '';
+  const wchips = [0, 1, 2, 3, 4, 5, 6].map(i => `<button class="wchip ${rf.weekdays.includes(i) ? 'on' : ''}" data-w="${i}">${WD[i]}</button>`).join('');
+  const mdays = Array.from({ length: 31 }, (_, i) => i + 1).map(n => `<button class="mday ${rf.monthDays.includes(n) ? 'on' : ''}" data-d="${n}">${n}</button>`).join('');
+  openSheet(`
+    <div class="sh-title">새 루틴</div>
+    <label class="lbl" for="rf-cat">카테고리</label>
+    <select id="rf-cat" class="inp">${catOpts}</select>
+    <label class="lbl" for="rf-text">할 일</label>
+    <input id="rf-text" class="inp" placeholder="예: 운동 30분" value="${esc(rf.text)}" autocomplete="off">
+    <label class="lbl" for="rf-freq">반복 주기</label>
+    <select id="rf-freq" class="inp">
+      <option value="daily"${sel('daily')}>매일</option>
+      <option value="weekly"${sel('weekly')}>매주</option>
+      <option value="biweekly"${sel('biweekly')}>격주 (2주마다)</option>
+      <option value="monthly"${sel('monthly')}>매월</option>
+    </select>
+    ${(rf.freq === 'weekly' || rf.freq === 'biweekly') ? `<label class="lbl">요일 선택</label><div class="wchips">${wchips}</div>` : ''}
+    ${rf.freq === 'monthly' ? `<label class="lbl">날짜 선택</label><div class="mdays">${mdays}</div>` : ''}
+    <label class="lbl" for="rf-start">시작일${rf.freq === 'biweekly' ? ' · 이 날이 속한 주를 기준으로 2주 간격' : ''}</label>
+    <input type="date" id="rf-start" class="inp" value="${rf.start}">
+    <div class="row">
+      <button class="btn ghostb" data-o="back-routines">취소</button>
+      <button class="btn" data-o="save-routine">저장</button>
+    </div>
+  `, { type: 'rform' });
+}
+
+// --- 확인 ---
+function sheetConfirm(title, desc, okLabel, cb) {
+  openSheet(`
+    <div class="sh-title">${esc(title)}</div>
+    <p class="hint">${esc(desc)}</p>
+    <div class="row">
+      <button class="btn ghostb" data-o="cancel">취소</button>
+      <button class="btn" data-o="ok">${esc(okLabel)}</button>
+    </div>
+  `, { type: 'confirm', cb });
+}
+
+// --- 설정 ---
+function parseConfig(text) {
+  if (!text) return null;
+  let t = String(text).trim();
+  const m = t.match(/\{[\s\S]*\}/);
+  if (m) t = m[0];
+  try { return JSON.parse(t); } catch (e) {}
+  try { return (new Function('return (' + t + ')'))(); } catch (e) {}
+  return null;
+}
+function authMsg(code) {
+  const map = {
+    'auth/invalid-email': '이메일 형식이 올바르지 않아요',
+    'auth/user-not-found': '등록되지 않은 이메일이에요',
+    'auth/wrong-password': '비밀번호가 틀렸어요',
+    'auth/invalid-credential': '이메일 또는 비밀번호가 올바르지 않아요',
+    'auth/email-already-in-use': '이미 가입된 이메일이에요. 로그인해 주세요',
+    'auth/weak-password': '비밀번호는 6자 이상이어야 해요',
+    'auth/too-many-requests': '시도가 너무 많아요. 잠시 후 다시 시도해 주세요',
+    'auth/network-request-failed': '네트워크 오류가 발생했어요',
+    'auth/operation-not-allowed': 'Firebase 콘솔에서 이메일/비밀번호 로그인을 활성화해 주세요',
+  };
+  return map[code] || ('오류가 발생했어요 (' + code + ')');
+}
+
+const RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/{doc=**} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
+    }
+  }
+}`;
+
+function sheetSettings() {
+  const cfg = storage.getItem(K_CFG);
+  const logged = !!FB.user;
+  const statusHtml = logged
+    ? `☁️ 클라우드 동기화 중<br><span style="color:var(--sub); font-weight:500">${esc(FB.user.email || '')}</span>`
+    : cfg
+      ? '🔌 Firebase 연결됨 · 로그인하면 기기 간 동기화가 시작돼요'
+      : '📱 로컬 모드 · 이 브라우저에만 저장돼요';
+
+  const configSection = `
+    <label class="lbl" for="cfg-inp">Firebase 구성 붙여넣기</label>
+    <textarea id="cfg-inp" class="inp" style="font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px" placeholder='{
+  "apiKey": "AIza...",
+  "authDomain": "xxx.firebaseapp.com",
+  "projectId": "xxx",
+  ...
+}'></textarea>
+    <p class="hint">Firebase 콘솔의 <b>const firebaseConfig = { ... }</b> 블록을 그대로 붙여넣어도 돼요.</p>
+    <div class="err" id="cfg-err"></div>
+    <button class="btn full" data-o="save-cfg" style="margin-top:6px">연결하기</button>`;
+
+  const authSection = `
+    <label class="lbl" for="auth-email">이메일</label>
+    <input id="auth-email" class="inp" type="email" autocomplete="email" placeholder="me@example.com">
+    <label class="lbl" for="auth-pw">비밀번호 (6자 이상)</label>
+    <input id="auth-pw" class="inp" type="password" autocomplete="current-password" placeholder="••••••">
+    <div class="err" id="auth-err"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn ghostb" data-o="signup">회원가입</button>
+      <button class="btn" data-o="login">로그인</button>
+    </div>
+    <p class="hint">같은 계정으로 PC·모바일에서 로그인하면 데이터가 실시간으로 동기화돼요.</p>`;
+
+  openSheet(`
+    <div class="sh-title">동기화 설정</div>
+    <div class="status">${statusHtml}</div>
+    ${!cfg ? configSection : ''}
+    ${cfg && !logged ? authSection : ''}
+    ${logged ? '<button class="btn full ghostb" data-o="logout">로그아웃</button>' : ''}
+    ${cfg ? '<button class="opt danger" style="margin-top:10px" data-o="unlink" data-confirm data-arm-label="한 번 더 누르면 연결이 해제됩니다">Firebase 연결 해제 (로컬 모드로 전환)</button>' : ''}
+    <details class="guide">
+      <summary>Firebase 무료 설정 방법</summary>
+      <ol>
+        <li><b>console.firebase.google.com</b>에서 새 프로젝트 만들기 (Spark 무료 요금제)</li>
+        <li>빌드 → <b>Authentication</b> → 시작하기 → 로그인 방법에서 <b>이메일/비밀번호</b> 사용 설정</li>
+        <li>빌드 → <b>Firestore Database</b> → 데이터베이스 만들기 (프로덕션 모드, 리전 <code>asia-northeast3</code> 추천)</li>
+        <li>Firestore <b>규칙</b> 탭에 아래 규칙을 붙여넣고 게시:</li>
+      </ol>
+      <pre>${esc(RULES)}</pre>
+      <ol start="5">
+        <li>프로젝트 설정(⚙️) → 일반 → 내 앱 → 웹 앱(&lt;/&gt;) 등록 → <b>firebaseConfig</b> 복사 → 위 칸에 붙여넣기</li>
+        <li>다른 기기에서도 이 파일을 열고 같은 구성 + 같은 계정으로 로그인</li>
+        <li>웹에 호스팅해서 쓸 경우(GitHub Pages 등) Authentication → 설정 → <b>승인된 도메인</b>에 해당 도메인 추가</li>
+      </ol>
+      <p class="hint">무료 한도: Firestore 하루 읽기 5만 · 쓰기 2만 회, Auth 무료 — 개인 투두 용도로는 충분해요.</p>
+    </details>
+  `, { type: 'settings' });
+}
+
+// ---------- sheet 이벤트 ----------
+sheetEl.addEventListener('change', e => {
+  if (e.target.id === 'rf-freq') sheetRoutineForm(readRoutineForm());
+});
+
+sheetEl.addEventListener('click', async e => {
+  const wc = e.target.closest('.wchip'); if (wc) { wc.classList.toggle('on'); return; }
+  const md = e.target.closest('.mday'); if (md) { md.classList.toggle('on'); return; }
+  const sw = e.target.closest('.sw');
+  if (sw) {
+    sheetEl.querySelectorAll('.sw').forEach(x => x.classList.remove('on'));
+    sw.classList.add('on');
+    if (sheetCtx) sheetCtx.color = sw.dataset.color;
+    return;
+  }
+  const tg = e.target.closest('[data-rtoggle]');
+  if (tg) {
+    const r = state.routines.find(x => x.id === tg.dataset.rtoggle);
+    if (r) { store.updateRoutine(r.id, { active: !(r.active !== false) }); if (!cloud()) sheetRoutines(); }
+    return;
+  }
+
+  const b = e.target.closest('button');
+  if (!b) return;
+
+  // 위험 버튼 2단계 확인
+  if ('confirm' in b.dataset && !('armed' in b.dataset)) {
+    b.dataset.armed = '1';
+    b.dataset.oldHtml = b.innerHTML;
+    b.textContent = b.dataset.armLabel || '한 번 더 누르면 삭제됩니다';
+    b.classList.add('armed');
+    setTimeout(() => {
+      if (b.isConnected && 'armed' in b.dataset) {
+        delete b.dataset.armed;
+        b.innerHTML = b.dataset.oldHtml;
+        b.classList.remove('armed');
+      }
+    }, 2600);
+    return;
+  }
+
+  const rdel = b.dataset.rdel;
+  if (rdel) {
+    store.deleteRoutine(rdel);
+    toast('루틴을 삭제했어요');
+    if (!cloud()) sheetRoutines();
+    return;
+  }
+
+  const o = b.dataset.o;
+  if (!o) return;
+  if (o === 'cancel') { closeSheet(); return; }
+  if (o === 'new-routine') {
+    if (!state.cats.length) { toast('카테고리를 먼저 만들어 주세요'); return; }
+    sheetRoutineForm(null); return;
+  }
+  if (o === 'back-routines') { sheetRoutines(); return; }
+  if (!sheetCtx) return;
+
+  // 할 일 메뉴
+  if (sheetCtx.type === 'todo') {
+    const t = state.todos.find(x => x.id === sheetCtx.id);
+    if (!t) { closeSheet(); return; }
+    if (o === 'edit') sheetEditTodo(t);
+    else if (o === 'memo') sheetMemo(t);
+    else if (o === 'del') { store.deleteTodo(t.id); toast('삭제했어요'); closeSheet(); }
+    else if (o === 'tomorrow') {
+      store.addTodo({ categoryId: t.categoryId, text: t.text, date: addDaysStr(t.date, 1) });
+      const nd = parseDate(addDaysStr(t.date, 1));
+      toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가했어요`);
+      closeSheet();
+    }
+    else if (o === 'other') sheetPickDate(t);
+    return;
+  }
+  if (sheetCtx.type === 'edit' && o === 'save-edit') {
+    const v = $('#edit-inp').value.trim();
+    if (!v) { toast('내용을 입력해 주세요'); return; }
+    store.updateTodo(sheetCtx.id, { text: v });
+    closeSheet();
+    return;
+  }
+  if (sheetCtx.type === 'memo' && o === 'save-memo') {
+    store.updateTodo(sheetCtx.id, { memo: $('#memo-inp').value.trim() });
+    closeSheet();
+    return;
+  }
+  if (sheetCtx.type === 'pickdate' && o === 'save-date') {
+    const v = $('#pick-date').value;
+    if (!v) { toast('날짜를 선택해 주세요'); return; }
+    const t = state.todos.find(x => x.id === sheetCtx.id);
+    if (t) {
+      store.addTodo({ categoryId: t.categoryId, text: t.text, date: v });
+      const nd = parseDate(v);
+      toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가했어요`);
+    }
+    closeSheet();
+    return;
+  }
+
+  // 카테고리
+  if (sheetCtx.type === 'cat') {
+    const c = state.cats.find(x => x.id === sheetCtx.id);
+    if (!c) { closeSheet(); return; }
+    if (o === 'cat-edit') sheetCatForm(c);
+    else if (o === 'cat-del') { store.deleteCategory(c.id); toast('카테고리를 삭제했어요'); closeSheet(); }
+    return;
+  }
+  if (sheetCtx.type === 'catform' && o === 'save-cat') {
+    const name = $('#cf-name').value.trim();
+    if (!name) { toast('이름을 입력해 주세요'); return; }
+    if (sheetCtx.id) store.updateCategory(sheetCtx.id, { name, color: sheetCtx.color });
+    else store.addCategory({ name, color: sheetCtx.color });
+    closeSheet();
+    return;
+  }
+
+  // 루틴 저장
+  if (sheetCtx.type === 'rform' && o === 'save-routine') {
+    const f = readRoutineForm();
+    f.text = f.text.trim();
+    if (!f.categoryId) { toast('카테고리를 먼저 만들어 주세요'); return; }
+    if (!f.text) { toast('할 일 내용을 입력해 주세요'); return; }
+    if ((f.freq === 'weekly' || f.freq === 'biweekly') && !f.weekdays.length) { toast('요일을 선택해 주세요'); return; }
+    if (f.freq === 'monthly' && !f.monthDays.length) { toast('날짜를 선택해 주세요'); return; }
+    store.addRoutine(f);
+    toast('루틴을 추가했어요');
+    sheetRoutines();
+    return;
+  }
+
+  // 확인
+  if (sheetCtx.type === 'confirm' && o === 'ok') {
+    const cb = sheetCtx.cb;
+    if (cb) await cb();
+    return;
+  }
+
+  // 설정
+  if (sheetCtx.type === 'settings') {
+    if (o === 'save-cfg') {
+      const c = parseConfig($('#cfg-inp').value);
+      if (!c || !c.apiKey || !c.projectId) {
+        $('#cfg-err').textContent = '구성을 해석할 수 없어요. firebaseConfig 객체 전체를 붙여넣어 주세요.';
+        return;
+      }
+      storage.setItem(K_CFG, JSON.stringify(c));
+      if (FB.app) { location.reload(); return; }
+      const ok = await connectFirebase(c);
+      if (ok) toast('Firebase에 연결했어요. 이제 로그인해 주세요');
+      sheetSettings();
+      return;
+    }
+    if (o === 'login' || o === 'signup') {
+      const em = $('#auth-email').value.trim();
+      const pw = $('#auth-pw').value;
+      const errEl = $('#auth-err');
+      errEl.textContent = '';
+      if (!em || !pw) { errEl.textContent = '이메일과 비밀번호를 입력해 주세요'; return; }
+      b.textContent = '처리 중…';
+      try {
+        const A = FB.fns.auth;
+        if (o === 'login') await A.signInWithEmailAndPassword(FB.auth, em, pw);
+        else await A.createUserWithEmailAndPassword(FB.auth, em, pw);
+        toast(o === 'login' ? '로그인했어요' : '가입하고 로그인했어요');
+      } catch (ex) {
+        errEl.textContent = authMsg(ex.code || '');
+        b.textContent = o === 'login' ? '로그인' : '회원가입';
+      }
+      return;
+    }
+    if (o === 'logout') {
+      try { await FB.fns.auth.signOut(FB.auth); toast('로그아웃했어요 · 로컬 모드로 전환됩니다'); } catch (ex) { oops(ex); }
+      return;
+    }
+    if (o === 'unlink') {
+      storage.removeItem(K_CFG);
+      location.reload();
+      return;
+    }
+  }
+});
+
+// ---------- 리스트 이벤트 ----------
+const listEl = $('#list');
+listEl.addEventListener('click', e => {
+  const tg = e.target.closest('[data-toggle]');
+  if (tg) {
+    const t = state.todos.find(x => x.id === tg.dataset.toggle);
+    if (t) store.updateTodo(t.id, { done: !t.done });
+    return;
+  }
+  const gh = e.target.closest('[data-ghost]');
+  if (gh) {
+    const r = state.routines.find(x => x.id === gh.dataset.ghost);
+    if (r) { store.addTodo({ categoryId: r.categoryId, text: r.text, routineId: r.id }); toast('할 일로 추가했어요'); }
+    return;
+  }
+  const mn = e.target.closest('[data-menu]');
+  if (mn) {
+    const t = state.todos.find(x => x.id === mn.dataset.menu);
+    if (t) sheetTodoMenu(t);
+    return;
+  }
+  const ad = e.target.closest('[data-add]');
+  if (ad) {
+    const old = document.getElementById('new-todo-input');
+    if (old && old.value.trim() && old.dataset.cat !== ad.dataset.add) {
+      store.addTodo({ categoryId: old.dataset.cat, text: old.value.trim() });
+      old.value = '';
+    }
+    state.addingCat = ad.dataset.add;
+    state.focusNew = true;
+    renderList();
+    return;
+  }
+  const cp = e.target.closest('[data-cat]');
+  if (cp) { sheetCatMenu(cp.dataset.cat); return; }
+  if (e.target.closest('#add-cat-btn') || e.target.closest('[data-newcat]')) { sheetCatForm(null); return; }
+});
+
+listEl.addEventListener('keydown', e => {
+  if (e.target.id !== 'new-todo-input') return;
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const v = e.target.value.trim();
+    if (v) {
+      e.target.value = '';
+      store.addTodo({ categoryId: e.target.dataset.cat, text: v });
+      state.focusNew = true;
+      if (cloud()) renderList();
+    }
+  } else if (e.key === 'Escape') {
+    state.addingCat = null;
+    renderList();
+  }
+});
+
+listEl.addEventListener('focusout', e => {
+  if (e.target.id !== 'new-todo-input') return;
+  const cat = e.target.dataset.cat;
+  const val = e.target.value.trim();
+  setTimeout(() => {
+    const cur = document.getElementById('new-todo-input');
+    if (cur && document.activeElement === cur) return; // 렌더 후 재포커스됨
+    if (val) store.addTodo({ categoryId: cat, text: val });
+    if (state.addingCat === cat) { state.addingCat = null; renderList(); }
+  }, 150);
+});
+
+// ---------- 달력 이벤트 ----------
+$('#cal-grid').addEventListener('click', e => {
+  const cell = e.target.closest('.cal-cell');
+  if (!cell) return;
+  const ds = cell.dataset.date;
+  state.selected = ds;
+  const d = parseDate(ds);
+  if (d.getMonth() !== state.month.getMonth() || d.getFullYear() !== state.month.getFullYear()) {
+    state.month = new Date(d.getFullYear(), d.getMonth(), 1);
+    subTodosRange();
+  }
+  render();
+});
+
+function shiftMonth(n) {
+  state.month = new Date(state.month.getFullYear(), state.month.getMonth() + n, 1);
+  const { gs, ge } = gridRange(state.month);
+  if (state.selected < fmt(gs) || state.selected > fmt(ge)) state.selected = fmt(state.month);
+  subTodosRange();
+  render();
+}
+$('#cal-prev').addEventListener('click', () => shiftMonth(-1));
+$('#cal-next').addEventListener('click', () => shiftMonth(1));
+$('#cal-today').addEventListener('click', () => {
+  const t = new Date();
+  state.month = new Date(t.getFullYear(), t.getMonth(), 1);
+  state.selected = todayStr();
+  subTodosRange();
+  render();
+});
+
+$('#btn-routines').addEventListener('click', sheetRoutines);
+$('#btn-settings').addEventListener('click', sheetSettings);
+
+// ---------- init ----------
+loadLocal();
+render();
+
+if (storageIsMemory) {
+  setTimeout(() => toast('이 미리보기에선 저장이 유지되지 않아요. 파일로 내려받아 브라우저에서 열어 주세요.'), 600);
+}
+
+(function init() {
+  const raw = storage.getItem(K_CFG);
+  if (!raw) return;
+  try {
+    const cfg = JSON.parse(raw);
+    if (cfg && cfg.apiKey) connectFirebase(cfg);
+  } catch (e) { console.error(e); }
+})();
+</script>
+</body>
+</html>
