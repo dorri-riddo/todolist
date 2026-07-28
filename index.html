@@ -395,14 +395,15 @@ function loadLocal() {
   state.cats = d.cats; state.todos = d.todos; state.routines = d.routines;
 }
 function saveLocal() {
-  storage.setItem(K_DATA, JSON.stringify({ cats: state.cats, todos: state.todos, routines: state.routines }));
+  const cut = Date.now() - 60 * 864e5;
+  const keep = a => a.filter(x => !x.deleted || (x.updatedAt || 0) > cut);
+  storage.setItem(K_DATA, JSON.stringify({ cats: keep(state.cats), todos: keep(state.todos), routines: keep(state.routines) }));
 }
 
 // ---------- Firebase ----------
 const FB_VER = '10.12.2';
 const FB_URL = n => `https://www.gstatic.com/firebasejs/${FB_VER}/firebase-${n}.js`;
 const FB = { app: null, db: null, key: null, fns: null, unsubs: [], todoUnsub: null };
-let localBackup = null;
 let migChecked = false;
 
 const cloud = () => !!(FB.db && FB.key);
@@ -424,6 +425,13 @@ async function connectFirebase(cfg) {
     migChecked = false;
     subscribeCloud();
     if (sheetCtx && sheetCtx.type === 'settings') sheetSettings();
+    restProbe(cfg).then(p => {
+      if (!p.ok) {
+        FB.lastErr = probeMsg(p);
+        toast('⚠️ ' + FB.lastErr.split('\n')[0]);
+        if (sheetCtx && sheetCtx.type === 'settings') sheetSettings();
+      }
+    });
     return true;
   } catch (err) {
     console.error('[firebase]', err);
@@ -439,9 +447,42 @@ function fsErrMsg(e) {
   if (c.includes('permission-denied')) return 'Firestore 규칙이 접근을 막고 있어요. 규칙 탭에 새 규칙(allow read, write: if true)을 게시했는지 확인해 주세요';
   if (c.includes('not-found') || m.includes('does not exist')) return 'Firestore 데이터베이스가 없어요. 콘솔의 빌드 → Firestore Database에서 만들어 주세요 (Realtime Database 아님!)';
   if (c.includes('failed-precondition') && m.toLowerCase().includes('index')) return 'Firestore 인덱스가 필요해요. 이 화면을 캡처해서 알려주시면 해결 방법을 안내해 드릴게요';
-  if (c.includes('unavailable')) return '네트워크에 연결할 수 없어요';
+  if (c.includes('unavailable')) return 'Firestore 서버에 연결이 안 돼요. 🔍 연결 테스트를 누르면 정확한 원인을 알려드려요';
   if (c.includes('invalid-argument')) return '요청 형식이 잘못됐어요. 이 화면을 캡처해서 알려주시면 확인해 드릴게요';
   return '클라우드 오류: ' + (c || m || '알 수 없음');
+}
+
+// SDK를 거치지 않고 REST로 서버에 직접 물어봐서 원인을 단정한다
+async function restProbe(c) {
+  const base = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(c.projectId)}/databases/(default)/documents/u/main/_meta/ping`;
+  try {
+    const r = await fetch(`${base}?key=${encodeURIComponent(c.apiKey)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { t: { integerValue: String(Date.now()) } } }),
+    });
+    if (r.ok) return { ok: true };
+    let msg = 'HTTP ' + r.status;
+    try { const j = await r.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch (e) {}
+    if (r.status === 404 && /does not exist/i.test(msg)) return { ok: false, why: 'nodb', msg };
+    if (r.status === 403 && /referer|api key/i.test(msg)) return { ok: false, why: 'keyblocked', msg };
+    if (r.status === 403) return { ok: false, why: 'rules', msg };
+    if (r.status === 400 && /api key/i.test(msg)) return { ok: false, why: 'badkey', msg };
+    return { ok: false, why: 'other', msg };
+  } catch (e) {
+    return { ok: false, why: 'net', msg: String(e && e.message || e) };
+  }
+}
+
+function probeMsg(p) {
+  switch (p.why) {
+    case 'nodb': return 'Firestore 데이터베이스가 아직 없어요.\n콘솔 왼쪽 [빌드 → Firestore Database]에서 "데이터베이스 만들기"를 해주세요.\n(전에 만드신 Realtime Database는 이름만 비슷한 다른 제품이라 소용이 없어요)';
+    case 'rules': return 'Firestore는 있는데 규칙이 쓰기를 막고 있어요.\nFirestore의 [규칙] 탭에 안내드린 규칙(allow read, write: if true)을 붙여넣고 [게시]를 눌러주세요.';
+    case 'keyblocked': return 'API 키에 제한이 걸려 있어서 이 환경에서 차단됐어요.\n이 화면을 캡처해서 보여주시면 푸는 방법을 알려드릴게요.\n(' + p.msg + ')';
+    case 'badkey': return 'API 키가 올바르지 않아요. firebaseConfig를 다시 복사해서 붙여넣어 주세요.\n(' + p.msg + ')';
+    case 'net': return '인터넷 연결이나 방화벽 때문에 Firestore 서버에 닿지 못했어요.';
+    default: return '예상 못 한 응답이에요: ' + p.msg + '\n이 화면을 캡처해서 보여주시면 확인해 드릴게요.';
+  }
 }
 
 function cloudBail(e) {
@@ -469,20 +510,18 @@ function fbCol(name) {
 
 function subscribeCloud() {
   unsubCloud();
-  localBackup = loadLocalRaw();
-  state.cats = []; state.todos = []; state.routines = [];
   const { onSnapshot } = FB.fns.fs;
   FB.unsubs.push(onSnapshot(fbCol('categories'), s => {
-    state.cats = s.docs.map(d => d.data());
+    applyServer('cats', 'categories', s);
     render();
-    maybeOfferMigration();
   }, cloudBail));
   FB.unsubs.push(onSnapshot(fbCol('routines'), s => {
-    state.routines = s.docs.map(d => d.data());
+    applyServer('routines', 'routines', s);
     render();
     if (sheetCtx && sheetCtx.type === 'routines') sheetRoutines();
   }, cloudBail));
   subTodosRange();
+  pullOldKeyOnce();
 }
 
 function subTodosRange() {
@@ -492,150 +531,128 @@ function subTodosRange() {
   const { gs, ge } = gridRange(state.month);
   const q = query(fbCol('todos'), where('date', '>=', fmt(gs)), where('date', '<=', fmt(ge)));
   FB.todoUnsub = onSnapshot(q, s => {
-    state.todos = s.docs.map(d => d.data());
+    applyServer('todos', 'todos', s);
     render();
   }, cloudBail);
 }
 
-async function maybeOfferMigration() {
-  if (migChecked || !FB.key) return;
+// 서버 스냅샷을 로컬에 병합한다. 로컬이 항상 기준이며, 같은 항목은 최신 수정본이 이긴다.
+// 서버에 없거나 서버가 더 오래된 로컬 항목은 다시 올려서 양방향으로 수렴시킨다.
+function applyServer(sk, col, snap) {
+  const arr = state[sk];
+  const sv = new Map();
+  for (const d of snap.docs) {
+    const sd = d.data();
+    if (!sd || !sd.id) continue;
+    sv.set(sd.id, sd.updatedAt || sd.createdAt || 0);
+    const i = arr.findIndex(x => x.id === sd.id);
+    if (i < 0) arr.push(sd);
+    else {
+      const lu = arr[i].updatedAt || arr[i].createdAt || 0;
+      if ((sd.updatedAt || sd.createdAt || 0) >= lu) arr[i] = sd;
+    }
+  }
+  if (cloud() && !snap.metadata.fromCache && !snap.metadata.hasPendingWrites) {
+    let lo = null, hi = null;
+    if (sk === 'todos') { const { gs, ge } = gridRange(state.month); lo = fmt(gs); hi = fmt(ge); }
+    for (const x of arr) {
+      if (lo && (x.date < lo || x.date > hi)) continue;
+      const su = sv.get(x.id);
+      if (su === undefined || (x.updatedAt || x.createdAt || 0) > su) pushDoc(col, x);
+    }
+  }
+  saveLocal();
+}
+
+// 예전 버전(동기화 코드 시절) 경로에 남은 데이터를 한 번 이어받는다
+async function pullOldKeyOnce() {
+  if (migChecked) return;
   migChecked = true;
-  // 예전 버전의 '동기화 코드' 경로에 남은 데이터가 있으면 자동으로 이어받기
-  if (state.cats.length === 0) {
-    const moved = await migrateOldKey();
-    if (moved) return;
-  } else {
-    storage.removeItem(K_KEY);
-  }
-  const flagK = 'tdm_mig_' + FB.key;
-  if (storage.getItem(flagK)) return;
-  storage.setItem(flagK, '1');
-  if (state.cats.length > 0) return;
-  const lb = localBackup || { cats: [], todos: [], routines: [] };
-  const n = lb.cats.length + lb.todos.length + lb.routines.length;
-  if (!n) return;
-  sheetConfirm(
-    '로컬 데이터 옮기기',
-    `이 기기에 저장돼 있던 카테고리 ${lb.cats.length}개 · 할 일 ${lb.todos.length}개 · 루틴 ${lb.routines.length}개를 지금 연결한 클라우드로 업로드할까요?`,
-    '업로드',
-    async () => {
-      try {
-        await migrateLocal(lb);
-        toast('로컬 데이터를 계정으로 옮겼어요');
-      } catch (e) {
-        console.error(e);
-        toast('업로드 중 오류가 발생했어요');
-      }
-      closeSheet();
-    }
-  );
-}
-
-async function migrateLocal(lb) {
-  const { writeBatch, doc } = FB.fns.fs;
-  const groups = [['categories', lb.cats], ['todos', lb.todos], ['routines', lb.routines]];
-  let batch = writeBatch(FB.db), n = 0;
-  for (const [col, arr] of groups) {
-    for (const o of arr) {
-      batch.set(doc(fbCol(col), o.id), o);
-      if (++n % 400 === 0) { await batch.commit(); batch = writeBatch(FB.db); }
-    }
-  }
-  await batch.commit();
-}
-
-async function migrateOldKey() {
   const old = storage.getItem(K_KEY);
-  if (!old || old === 'main') { storage.removeItem(K_KEY); return false; }
+  if (!old || old === 'main') { storage.removeItem(K_KEY); return; }
   try {
-    const { getDocs, collection } = FB.fns.fs;
-    const lb = { cats: [], todos: [], routines: [] };
-    const pairs = [['categories', 'cats'], ['todos', 'todos'], ['routines', 'routines']];
-    for (const [col, kk] of pairs) {
-      const s = await getDocs(collection(FB.db, 'u', old, col));
-      lb[kk] = s.docs.map(d => d.data());
+    const { getDocs, collection, doc, setDoc } = FB.fns.fs;
+    let n = 0;
+    for (const col of ['categories', 'todos', 'routines']) {
+      const snap = await getDocs(collection(FB.db, 'u', old, col));
+      for (const d of snap.docs) { await setDoc(doc(fbCol(col), d.id), d.data()); n++; }
     }
-    const n = lb.cats.length + lb.todos.length + lb.routines.length;
-    if (!n) { storage.removeItem(K_KEY); return false; }
-    await migrateLocal(lb);
     storage.removeItem(K_KEY);
-    storage.setItem('tdm_mig_' + FB.key, '1');
-    toast(`이전 위치의 항목 ${n}개를 이어받았어요`);
-    return true;
-  } catch (e) {
-    console.error('[migrate-old]', e);
-    return false;
-  }
+    if (n) toast(`이전 위치의 항목 ${n}개를 이어받았어요`);
+  } catch (e) { console.error('[old-key]', e); }
 }
 
-const oops = e => { console.error(e); toast('⚠️ ' + fsErrMsg(e)); };
+let oopsT = 0;
+const oops = e => {
+  console.error(e);
+  const n = Date.now();
+  if (n - oopsT > 8000) { oopsT = n; toast('⚠️ ' + fsErrMsg(e)); }
+};
 
-// ---------- store (로컬/클라우드 공용 API) ----------
+function pushDoc(col, obj) {
+  if (cloud()) FB.fns.fs.setDoc(FB.fns.fs.doc(fbCol(col), obj.id), obj).catch(oops);
+}
+
+const stamp = () => Date.now();
+function upsert(arr, obj) { const i = arr.findIndex(x => x.id === obj.id); if (i >= 0) arr[i] = obj; else arr.push(obj); }
+function commitLocal() { saveLocal(); render(); }
+const liveCats = () => state.cats.filter(c => !c.deleted);
+
+// ---------- store: 로컬이 항상 기준. 즉시 저장·표시하고, 클라우드엔 뒤에서 복사한다 ----------
 const store = {
   addCategory({ name, color }) {
-    const c = { id: uid(), name, color, order: Date.now(), createdAt: Date.now() };
-    if (cloud()) FB.fns.fs.setDoc(FB.fns.fs.doc(fbCol('categories'), c.id), c).catch(oops);
-    else { state.cats.push(c); saveLocal(); render(); }
+    const c = { id: uid(), name, color, order: Date.now(), createdAt: Date.now(), updatedAt: stamp(), deleted: false };
+    upsert(state.cats, c); commitLocal(); pushDoc('categories', c);
     return c;
   },
   updateCategory(id, patch) {
-    if (cloud()) FB.fns.fs.updateDoc(FB.fns.fs.doc(fbCol('categories'), id), patch).catch(oops);
-    else { const c = state.cats.find(x => x.id === id); if (c) Object.assign(c, patch); saveLocal(); render(); }
+    const c = state.cats.find(x => x.id === id); if (!c) return;
+    Object.assign(c, patch, { updatedAt: stamp() });
+    commitLocal(); pushDoc('categories', c);
   },
-  async deleteCategory(id) {
-    if (cloud()) {
-      try {
-        const { getDocs, query, where, writeBatch, doc } = FB.fns.fs;
-        const [ts, rs] = await Promise.all([
-          getDocs(query(fbCol('todos'), where('categoryId', '==', id))),
-          getDocs(query(fbCol('routines'), where('categoryId', '==', id))),
-        ]);
-        const b = writeBatch(FB.db);
-        ts.forEach(d => b.delete(d.ref));
-        rs.forEach(d => b.delete(d.ref));
-        b.delete(doc(fbCol('categories'), id));
-        await b.commit();
-      } catch (e) { oops(e); }
-    } else {
-      state.cats = state.cats.filter(c => c.id !== id);
-      state.todos = state.todos.filter(t => t.categoryId !== id);
-      state.routines = state.routines.filter(r => r.categoryId !== id);
-      saveLocal(); render();
-    }
+  deleteCategory(id) {
+    const t = stamp();
+    const c = state.cats.find(x => x.id === id);
+    if (c) { c.deleted = true; c.updatedAt = t; pushDoc('categories', c); }
+    for (const x of state.todos) if (x.categoryId === id && !x.deleted) { x.deleted = true; x.updatedAt = t; pushDoc('todos', x); }
+    for (const x of state.routines) if (x.categoryId === id && !x.deleted) { x.deleted = true; x.updatedAt = t; pushDoc('routines', x); }
+    commitLocal();
   },
   addTodo({ categoryId, text, date = state.selected, routineId = null, memo = '' }) {
-    const t = { id: uid(), date, categoryId, text, done: false, memo, routineId, order: Date.now(), createdAt: Date.now() };
-    if (cloud()) FB.fns.fs.setDoc(FB.fns.fs.doc(fbCol('todos'), t.id), t).catch(oops);
-    else { state.todos.push(t); saveLocal(); render(); }
+    const t = { id: uid(), date, categoryId, text, done: false, memo, routineId, order: Date.now(), createdAt: Date.now(), updatedAt: stamp(), deleted: false };
+    upsert(state.todos, t); commitLocal(); pushDoc('todos', t);
     return t;
   },
   updateTodo(id, patch) {
-    if (cloud()) FB.fns.fs.updateDoc(FB.fns.fs.doc(fbCol('todos'), id), patch).catch(oops);
-    else { const t = state.todos.find(x => x.id === id); if (t) Object.assign(t, patch); saveLocal(); render(); }
+    const t = state.todos.find(x => x.id === id); if (!t) return;
+    Object.assign(t, patch, { updatedAt: stamp() });
+    commitLocal(); pushDoc('todos', t);
   },
   deleteTodo(id) {
-    if (cloud()) FB.fns.fs.deleteDoc(FB.fns.fs.doc(fbCol('todos'), id)).catch(oops);
-    else { state.todos = state.todos.filter(t => t.id !== id); saveLocal(); render(); }
+    const t = state.todos.find(x => x.id === id); if (!t) return;
+    t.deleted = true; t.updatedAt = stamp();
+    commitLocal(); pushDoc('todos', t);
   },
   addRoutine(data) {
-    const r = { id: uid(), active: true, createdAt: Date.now(), ...data };
-    if (cloud()) FB.fns.fs.setDoc(FB.fns.fs.doc(fbCol('routines'), r.id), r).catch(oops);
-    else { state.routines.push(r); saveLocal(); render(); }
+    const r = { id: uid(), active: true, createdAt: Date.now(), ...data, updatedAt: stamp(), deleted: false };
+    upsert(state.routines, r); commitLocal(); pushDoc('routines', r);
     return r;
   },
   updateRoutine(id, patch) {
-    if (cloud()) FB.fns.fs.updateDoc(FB.fns.fs.doc(fbCol('routines'), id), patch).catch(oops);
-    else { const r = state.routines.find(x => x.id === id); if (r) Object.assign(r, patch); saveLocal(); render(); }
+    const r = state.routines.find(x => x.id === id); if (!r) return;
+    Object.assign(r, patch, { updatedAt: stamp() });
+    commitLocal(); pushDoc('routines', r);
   },
   deleteRoutine(id) {
-    if (cloud()) FB.fns.fs.deleteDoc(FB.fns.fs.doc(fbCol('routines'), id)).catch(oops);
-    else { state.routines = state.routines.filter(r => r.id !== id); saveLocal(); render(); }
+    const r = state.routines.find(x => x.id === id); if (!r) return;
+    r.deleted = true; r.updatedAt = stamp();
+    commitLocal(); pushDoc('routines', r);
   },
 };
 
 // ---------- routine logic ----------
 function routineMatches(r, dateStr) {
-  if (r.active === false) return false;
+  if (r.deleted || r.active === false) return false;
   if (r.start && dateStr < r.start) return false;
   const d = parseDate(dateStr);
   switch (r.freq) {
@@ -668,8 +685,10 @@ function renderCalendar() {
   const y = state.month.getFullYear(), m = state.month.getMonth();
   $('#cal-title').textContent = `${y}년 ${m + 1}월`;
   const { gs } = gridRange(state.month);
+  const live = new Set(state.cats.filter(c => !c.deleted).map(c => c.id));
   const map = {};
   for (const t of state.todos) {
+    if (t.deleted || !live.has(t.categoryId)) continue;
     const e = (map[t.date] ||= { colors: [], total: 0, done: 0 });
     e.total++; if (t.done) e.done++;
     const c = catColor(t.categoryId);
@@ -721,13 +740,14 @@ function renderList() {
   const d = parseDate(dsel);
   $('#list-date').textContent = `${d.getMonth() + 1}월 ${d.getDate()}일 ${WD[d.getDay()]}요일`;
 
-  const todos = state.todos.filter(t => t.date === dsel);
+  const liveIds = new Set(liveCats().map(c => c.id));
+  const todos = state.todos.filter(t => t.date === dsel && !t.deleted && liveIds.has(t.categoryId));
   const doneN = todos.filter(t => t.done).length;
   $('#list-progress').textContent = todos.length ? `${doneN} / ${todos.length}` : '';
   $('#pbar').style.display = todos.length ? '' : 'none';
   $('#pbar-fill').style.width = todos.length ? Math.round(doneN / todos.length * 100) + '%' : '0';
 
-  const cats = [...state.cats].sort((a, b) => (a.order || 0) - (b.order || 0));
+  const cats = liveCats().sort((a, b) => (a.order || 0) - (b.order || 0));
   const box = $('#cat-list');
 
   if (!cats.length) {
@@ -744,7 +764,7 @@ function renderList() {
     const c = cat.color;
     const items = todos.filter(t => t.categoryId === cat.id).sort((a, b) => (a.order || 0) - (b.order || 0));
     const ghosts = state.routines
-      .filter(r => r.categoryId === cat.id && routineMatches(r, dsel) && !todos.some(t => t.routineId === r.id))
+      .filter(r => !r.deleted && r.categoryId === cat.id && routineMatches(r, dsel) && !todos.some(t => t.routineId === r.id))
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     return `
     <section class="cat-block">
@@ -864,8 +884,9 @@ function sheetCatMenu(id) {
 }
 
 function sheetCatForm(cat) {
-  const usedLess = PALETTE.find(p => !state.cats.some(c => c.color === p));
-  const color = cat ? cat.color : (usedLess || PALETTE[state.cats.length % PALETTE.length]);
+  const lcs = liveCats();
+  const usedLess = PALETTE.find(p => !lcs.some(c => c.color === p));
+  const color = cat ? cat.color : (usedLess || PALETTE[lcs.length % PALETTE.length]);
   const sws = PALETTE.map(p => `<button class="sw ${p === color ? 'on' : ''}" data-color="${p}" style="background:${p}" aria-label="색상 ${p}"></button>`).join('');
   openSheet(`
     <div class="sh-title">${cat ? '카테고리 수정' : '새 카테고리'}</div>
@@ -883,7 +904,7 @@ function sheetCatForm(cat) {
 
 // --- 루틴 ---
 function sheetRoutines() {
-  const rows = [...state.routines].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).map(r => {
+  const rows = state.routines.filter(r => !r.deleted).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).map(r => {
     const c = state.cats.find(x => x.id === r.categoryId);
     return `
     <div class="r-item">
@@ -921,14 +942,15 @@ function readRoutineForm() {
 
 function sheetRoutineForm(rf) {
   const t = new Date();
+  const lc = liveCats();
   rf = rf || {
-    categoryId: state.cats[0] ? state.cats[0].id : null,
+    categoryId: lc[0] ? lc[0].id : null,
     text: '', freq: 'daily',
     weekdays: [t.getDay()], monthDays: [t.getDate()], start: todayStr(),
   };
   if (!rf.weekdays.length) rf.weekdays = [t.getDay()];
   if (!rf.monthDays.length) rf.monthDays = [t.getDate()];
-  const catOpts = state.cats.map(c => `<option value="${c.id}" ${c.id === rf.categoryId ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  const catOpts = lc.map(c => `<option value="${c.id}" ${c.id === rf.categoryId ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
   const sel = v => rf.freq === v ? ' selected' : '';
   const wchips = [0, 1, 2, 3, 4, 5, 6].map(i => `<button class="wchip ${rf.weekdays.includes(i) ? 'on' : ''}" data-w="${i}">${WD[i]}</button>`).join('');
   const mdays = Array.from({ length: 31 }, (_, i) => i + 1).map(n => `<button class="mday ${rf.monthDays.includes(n) ? 'on' : ''}" data-d="${n}">${n}</button>`).join('');
@@ -991,7 +1013,7 @@ function sheetSettings() {
   const cfg = storage.getItem(K_CFG);
   const connected = cloud();
   const statusHtml = connected
-    ? '☁️ 클라우드 동기화 중 · 같은 구성을 붙여넣은 기기끼리 자동 동기화'
+    ? (FB.lastErr ? '⚠️ ' + esc(FB.lastErr) : '☁️ 클라우드 동기화 중 · 같은 구성을 붙여넣은 기기끼리 자동 동기화')
     : FB.lastErr
       ? '⚠️ ' + esc(FB.lastErr)
       : '📱 로컬 모드 · 이 브라우저에만 저장돼요';
@@ -1010,7 +1032,7 @@ function sheetSettings() {
 
   openSheet(`
     <div class="sh-title">동기화 설정</div>
-    <div class="status">${statusHtml}</div>
+    <div class="status" style="white-space:pre-wrap">${statusHtml}</div>
     ${!connected ? configSection : ''}
     ${cfg ? '<button class="btn full ghostb" data-o="test-conn" style="margin-top:8px">🔍 연결 테스트</button><div id="test-result" style="margin-top:8px; font-size:13px; line-height:1.5; font-weight:600; white-space:pre-wrap;"></div>' : ''}
     ${cfg ? '<button class="opt danger" style="margin-top:10px" data-o="unlink" data-confirm data-arm-label="한 번 더 누르면 연결이 해제됩니다">Firebase 연결 해제 (로컬 모드로 전환)</button>' : ''}
@@ -1084,7 +1106,7 @@ sheetEl.addEventListener('click', async e => {
   if (!o) return;
   if (o === 'cancel') { closeSheet(); return; }
   if (o === 'new-routine') {
-    if (!state.cats.length) { toast('카테고리를 먼저 만들어 주세요'); return; }
+    if (!liveCats().length) { toast('카테고리를 먼저 만들어 주세요'); return; }
     sheetRoutineForm(null); return;
   }
   if (o === 'back-routines') { sheetRoutines(); return; }
@@ -1195,22 +1217,21 @@ sheetEl.addEventListener('click', async e => {
       };
       try {
         const c = JSON.parse(storage.getItem(K_CFG) || 'null');
-        if (!c) throw { message: '저장된 설정이 없어요' };
-        if (!FB.db) {
-          const ok = await connectFirebase(c);
-          if (!ok) throw { message: '초기화에 실패했어요' };
+        if (!c) throw 0;
+        const p = await restProbe(c);
+        if (p.ok) {
+          if (!FB.db) await connectFirebase(c);
+          else { FB.key = 'main'; FB.lastErr = null; migChecked = false; subscribeCloud(); }
+          sheetSettings();
+          show('✅ 클라우드 연결 정상! 서버에 직접 쓰고 확인까지 완료했어요.\n같은 구성을 붙여넣은 기기끼리 자동으로 동기화됩니다.\n프로젝트: ' + (c.projectId || ''), true);
+        } else {
+          FB.lastErr = probeMsg(p);
+          show('❌ ' + FB.lastErr, false);
+          b.textContent = '🔍 연결 테스트';
         }
-        const { doc, setDoc, getDocFromServer } = FB.fns.fs;
-        const ref = doc(FB.db, 'u', 'main', '_meta', 'ping');
-        const timeout = ms => new Promise((_, rej) => setTimeout(() => rej({ code: 'unavailable', message: 'timeout' }), ms));
-        await Promise.race([setDoc(ref, { t: Date.now() }), timeout(9000)]);
-        await Promise.race([getDocFromServer(ref), timeout(9000)]);
-        if (!cloud()) { FB.key = 'main'; FB.lastErr = null; migChecked = false; subscribeCloud(); }
-        sheetSettings();
-        show('✅ 클라우드 읽기·쓰기 정상!\n같은 구성을 붙여넣은 기기끼리 자동으로 동기화됩니다.\n프로젝트: ' + (c.projectId || ''), true);
       } catch (ex) {
         console.error(ex);
-        show('❌ ' + fsErrMsg(ex), false);
+        show('❌ 저장된 설정을 읽지 못했어요. 구성을 다시 붙여넣어 주세요.', false);
         b.textContent = '🔍 연결 테스트';
       }
       return;
