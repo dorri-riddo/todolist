@@ -340,6 +340,15 @@ const storage = (() => {
 
 const K_DATA = 'tdm_data';
 const K_CFG  = 'tdm_cfg';
+const K_KEY  = 'tdm_key';
+
+function genKey() {
+  const cs = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const a = crypto.getRandomValues(new Uint8Array(20));
+  let s = '';
+  for (let i = 0; i < 20; i++) { s += cs[a[i] % 36]; if (i % 5 === 4 && i < 19) s += '-'; }
+  return s;
+}
 
 // ---------- utils ----------
 const $ = s => document.querySelector(s);
@@ -399,38 +408,29 @@ function saveLocal() {
 // ---------- Firebase ----------
 const FB_VER = '10.12.2';
 const FB_URL = n => `https://www.gstatic.com/firebasejs/${FB_VER}/firebase-${n}.js`;
-const FB = { app: null, db: null, auth: null, user: null, fns: null, unsubs: [], todoUnsub: null };
+const FB = { app: null, db: null, key: null, fns: null, unsubs: [], todoUnsub: null };
 let localBackup = null;
 let migChecked = false;
 
-const cloud = () => !!FB.user;
+const cloud = () => !!(FB.db && FB.key);
 
-async function connectFirebase(cfg) {
+async function connectFirebase(cfg, key) {
   try {
-    const [appM, authM, fsM] = await Promise.all([import(FB_URL('app')), import(FB_URL('auth')), import(FB_URL('firestore'))]);
-    FB.fns = { app: appM, auth: authM, fs: fsM };
+    const [appM, fsM] = await Promise.all([import(FB_URL('app')), import(FB_URL('firestore'))]);
+    FB.fns = { app: appM, fs: fsM };
     FB.app = appM.initializeApp(cfg);
     try {
       FB.db = fsM.initializeFirestore(FB.app, { localCache: fsM.persistentLocalCache() });
     } catch (e) {
       FB.db = fsM.getFirestore(FB.app);
     }
-    FB.auth = authM.getAuth(FB.app);
-    authM.onAuthStateChanged(FB.auth, u => {
-      FB.user = u;
-      if (u) {
-        subscribeCloud();
-      } else {
-        unsubCloud();
-        migChecked = false;
-        loadLocal();
-        render();
-      }
-      if (sheetCtx && sheetCtx.type === 'settings') sheetSettings();
-    });
+    FB.key = key;
+    subscribeCloud();
+    if (sheetCtx && sheetCtx.type === 'settings') sheetSettings();
     return true;
   } catch (err) {
     console.error('[firebase]', err);
+    FB.key = null;
     toast('Firebase 연결에 실패했어요 · 로컬 모드로 동작합니다');
     return false;
   }
@@ -443,7 +443,7 @@ function unsubCloud() {
 }
 
 function fbCol(name) {
-  return FB.fns.fs.collection(FB.db, 'users', FB.user.uid, name);
+  return FB.fns.fs.collection(FB.db, 'u', FB.key, name);
 }
 
 function subscribeCloud() {
@@ -477,9 +477,9 @@ function subTodosRange() {
 }
 
 function maybeOfferMigration() {
-  if (migChecked || !FB.user) return;
+  if (migChecked || !FB.key) return;
   migChecked = true;
-  const flagK = 'tdm_mig_' + FB.user.uid;
+  const flagK = 'tdm_mig_' + FB.key;
   if (storage.getItem(flagK)) return;
   storage.setItem(flagK, '1');
   if (state.cats.length > 0) return;
@@ -488,7 +488,7 @@ function maybeOfferMigration() {
   if (!n) return;
   sheetConfirm(
     '로컬 데이터 옮기기',
-    `이 기기에 저장돼 있던 카테고리 ${lb.cats.length}개 · 할 일 ${lb.todos.length}개 · 루틴 ${lb.routines.length}개를 지금 로그인한 계정으로 업로드할까요?`,
+    `이 기기에 저장돼 있던 카테고리 ${lb.cats.length}개 · 할 일 ${lb.todos.length}개 · 루틴 ${lb.routines.length}개를 지금 연결한 클라우드로 업로드할까요?`,
     '업로드',
     async () => {
       try {
@@ -926,39 +926,22 @@ function parseConfig(text) {
   try { return (new Function('return (' + t + ')'))(); } catch (e) {}
   return null;
 }
-function authMsg(code) {
-  const map = {
-    'auth/invalid-email': '이메일 형식이 올바르지 않아요',
-    'auth/user-not-found': '등록되지 않은 이메일이에요',
-    'auth/wrong-password': '비밀번호가 틀렸어요',
-    'auth/invalid-credential': '이메일 또는 비밀번호가 올바르지 않아요',
-    'auth/email-already-in-use': '이미 가입된 이메일이에요. 로그인해 주세요',
-    'auth/weak-password': '비밀번호는 6자 이상이어야 해요',
-    'auth/too-many-requests': '시도가 너무 많아요. 잠시 후 다시 시도해 주세요',
-    'auth/network-request-failed': '네트워크 오류가 발생했어요',
-    'auth/operation-not-allowed': 'Firebase 콘솔에서 이메일/비밀번호 로그인을 활성화해 주세요',
-  };
-  return map[code] || ('오류가 발생했어요 (' + code + ')');
-}
-
 const RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{userId}/{doc=**} {
-      allow read, write: if request.auth != null
-                         && request.auth.uid == userId;
+    match /u/{key}/{col}/{doc} {
+      allow read, write: if true;
     }
   }
 }`;
 
 function sheetSettings() {
   const cfg = storage.getItem(K_CFG);
-  const logged = !!FB.user;
-  const statusHtml = logged
-    ? `☁️ 클라우드 동기화 중<br><span style="color:var(--sub); font-weight:500">${esc(FB.user.email || '')}</span>`
-    : cfg
-      ? '🔌 Firebase 연결됨 · 로그인하면 기기 간 동기화가 시작돼요'
-      : '📱 로컬 모드 · 이 브라우저에만 저장돼요';
+  const key = storage.getItem(K_KEY);
+  const connected = cloud();
+  const statusHtml = connected
+    ? '☁️ 클라우드 동기화 중'
+    : '📱 로컬 모드 · 이 브라우저에만 저장돼요';
 
   const configSection = `
     <label class="lbl" for="cfg-inp">Firebase 구성 붙여넣기</label>
@@ -969,43 +952,38 @@ function sheetSettings() {
   ...
 }'></textarea>
     <p class="hint">Firebase 콘솔의 <b>const firebaseConfig = { ... }</b> 블록을 그대로 붙여넣어도 돼요.</p>
+    <label class="lbl" for="key-inp">동기화 코드 (선택)</label>
+    <input id="key-inp" class="inp" style="font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px" placeholder="비워두면 새 코드가 만들어져요" autocomplete="off" spellcheck="false">
+    <p class="hint">처음이면 비워두세요. 다른 기기에서 쓰던 데이터에 연결하려면 그 기기의 동기화 코드를 붙여넣으세요.</p>
     <div class="err" id="cfg-err"></div>
     <button class="btn full" data-o="save-cfg" style="margin-top:6px">연결하기</button>`;
 
-  const authSection = `
-    <label class="lbl" for="auth-email">이메일</label>
-    <input id="auth-email" class="inp" type="email" autocomplete="email" placeholder="me@example.com">
-    <label class="lbl" for="auth-pw">비밀번호 (6자 이상)</label>
-    <input id="auth-pw" class="inp" type="password" autocomplete="current-password" placeholder="••••••">
-    <div class="err" id="auth-err"></div>
-    <div class="row" style="margin-top:10px">
-      <button class="btn ghostb" data-o="signup">회원가입</button>
-      <button class="btn" data-o="login">로그인</button>
-    </div>
-    <p class="hint">같은 계정으로 PC·모바일에서 로그인하면 데이터가 실시간으로 동기화돼요.</p>`;
+  const keySection = connected ? `
+    <label class="lbl" for="key-show">내 동기화 코드</label>
+    <input id="key-show" class="inp" style="font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px" value="${esc(key || '')}" readonly onclick="this.select()">
+    <button class="btn full ghostb" data-o="copy-key" style="margin-top:8px">코드 복사</button>
+    <p class="hint">이 코드가 비밀번호 역할을 해요. Firebase 구성과 함께 메모장에 보관하고, 다른 기기에서는 둘 다 붙여넣으면 같은 데이터에 연결됩니다. 코드를 아는 사람은 데이터를 볼 수 있으니 공개된 곳에 올리지 마세요.</p>` : '';
 
   openSheet(`
     <div class="sh-title">동기화 설정</div>
     <div class="status">${statusHtml}</div>
-    ${!cfg ? configSection : ''}
-    ${cfg && !logged ? authSection : ''}
-    ${logged ? '<button class="btn full ghostb" data-o="logout">로그아웃</button>' : ''}
+    ${!connected ? configSection : ''}
+    ${keySection}
     ${cfg ? '<button class="opt danger" style="margin-top:10px" data-o="unlink" data-confirm data-arm-label="한 번 더 누르면 연결이 해제됩니다">Firebase 연결 해제 (로컬 모드로 전환)</button>' : ''}
     <details class="guide">
       <summary>Firebase 무료 설정 방법</summary>
       <ol>
         <li><b>console.firebase.google.com</b>에서 새 프로젝트 만들기 (Spark 무료 요금제)</li>
-        <li>빌드 → <b>Authentication</b> → 시작하기 → 로그인 방법에서 <b>이메일/비밀번호</b> 사용 설정</li>
         <li>빌드 → <b>Firestore Database</b> → 데이터베이스 만들기 (프로덕션 모드, 리전 <code>asia-northeast3</code> 추천)</li>
         <li>Firestore <b>규칙</b> 탭에 아래 규칙을 붙여넣고 게시:</li>
       </ol>
       <pre>${esc(RULES)}</pre>
-      <ol start="5">
-        <li>프로젝트 설정(⚙️) → 일반 → 내 앱 → 웹 앱(&lt;/&gt;) 등록 → <b>firebaseConfig</b> 복사 → 위 칸에 붙여넣기</li>
-        <li>다른 기기에서도 이 파일을 열고 같은 구성 + 같은 계정으로 로그인</li>
-        <li>웹에 호스팅해서 쓸 경우(GitHub Pages 등) Authentication → 설정 → <b>승인된 도메인</b>에 해당 도메인 추가</li>
+      <ol start="4">
+        <li>프로젝트 설정(⚙️) → 일반 → 내 앱 → 웹 앱(&lt;/&gt;) 등록 → <b>firebaseConfig</b> 복사 → 위 칸에 붙여넣고 연결</li>
+        <li>연결하면 나오는 <b>동기화 코드</b>를 firebaseConfig와 함께 메모장에 저장</li>
+        <li>다른 기기에서 이 파일을 열고 구성 + 코드 둘 다 붙여넣기 → 끝</li>
       </ol>
-      <p class="hint">무료 한도: Firestore 하루 읽기 5만 · 쓰기 2만 회, Auth 무료 — 개인 투두 용도로는 충분해요.</p>
+      <p class="hint">참고: 이 방식은 로그인 대신 긴 무작위 코드를 비밀번호처럼 쓰는 구조예요. Firebase가 "보안 규칙이 안전하지 않다"는 안내 메일을 보낼 수 있는데, 코드가 유출되지 않는 한 다른 사람이 접근할 수 없습니다. 무료 한도는 하루 읽기 5만 · 쓰기 2만 회로 개인 투두 용도로는 충분해요.</p>
     </details>
   `, { type: 'settings' });
 }
@@ -1156,37 +1134,37 @@ sheetEl.addEventListener('click', async e => {
         $('#cfg-err').textContent = '구성을 해석할 수 없어요. firebaseConfig 객체 전체를 붙여넣어 주세요.';
         return;
       }
+      let key = ($('#key-inp').value || '').trim();
+      const isNew = !key;
+      if (isNew) key = genKey();
+      if (!/^[a-z0-9-]{8,80}$/i.test(key) || key.includes('/')) {
+        $('#cfg-err').textContent = '동기화 코드는 영문·숫자·하이픈 8자 이상이어야 해요.';
+        return;
+      }
       storage.setItem(K_CFG, JSON.stringify(c));
+      storage.setItem(K_KEY, key);
       if (FB.app) { location.reload(); return; }
-      const ok = await connectFirebase(c);
-      if (ok) toast('Firebase에 연결했어요. 이제 로그인해 주세요');
+      b.textContent = '연결 중…';
+      const ok = await connectFirebase(c, key);
+      if (ok) toast(isNew ? '연결됐어요! 새 동기화 코드를 꼭 저장해 두세요' : '연결됐어요');
       sheetSettings();
       return;
     }
-    if (o === 'login' || o === 'signup') {
-      const em = $('#auth-email').value.trim();
-      const pw = $('#auth-pw').value;
-      const errEl = $('#auth-err');
-      errEl.textContent = '';
-      if (!em || !pw) { errEl.textContent = '이메일과 비밀번호를 입력해 주세요'; return; }
-      b.textContent = '처리 중…';
+    if (o === 'copy-key') {
+      const el = $('#key-show');
+      el.select();
       try {
-        const A = FB.fns.auth;
-        if (o === 'login') await A.signInWithEmailAndPassword(FB.auth, em, pw);
-        else await A.createUserWithEmailAndPassword(FB.auth, em, pw);
-        toast(o === 'login' ? '로그인했어요' : '가입하고 로그인했어요');
+        await navigator.clipboard.writeText(el.value);
+        toast('동기화 코드를 복사했어요');
       } catch (ex) {
-        errEl.textContent = authMsg(ex.code || '');
-        b.textContent = o === 'login' ? '로그인' : '회원가입';
+        try { document.execCommand('copy'); toast('동기화 코드를 복사했어요'); }
+        catch (e2) { toast('길게 눌러 직접 복사해 주세요'); }
       }
-      return;
-    }
-    if (o === 'logout') {
-      try { await FB.fns.auth.signOut(FB.auth); toast('로그아웃했어요 · 로컬 모드로 전환됩니다'); } catch (ex) { oops(ex); }
       return;
     }
     if (o === 'unlink') {
       storage.removeItem(K_CFG);
+      storage.removeItem(K_KEY);
       location.reload();
       return;
     }
@@ -1304,10 +1282,11 @@ if (storageIsMemory) {
 
 (function init() {
   const raw = storage.getItem(K_CFG);
-  if (!raw) return;
+  const key = storage.getItem(K_KEY);
+  if (!raw || !key) return;
   try {
     const cfg = JSON.parse(raw);
-    if (cfg && cfg.apiKey) connectFirebase(cfg);
+    if (cfg && cfg.apiKey) connectFirebase(cfg, key);
   } catch (e) { console.error(e); }
 })();
 </script>
