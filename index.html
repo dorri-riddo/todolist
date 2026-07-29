@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#f7f7f8">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -207,6 +207,8 @@ select.inp{appearance:none; -webkit-appearance:none; background:#fff url("data:i
 .btn.full{width:100%; margin-top:14px;}
 .hint{font-size:12.5px; color:var(--sub); margin:6px 4px 2px; line-height:1.55;}
 .err{font-size:12.5px; color:var(--danger); margin:8px 4px 0; min-height:1em;}
+.chkrow{display:flex; align-items:center; gap:9px; margin:14px 4px 0; font-size:14px; font-weight:600; cursor:pointer; user-select:none;}
+.chkrow input{width:19px; height:19px; accent-color:var(--txt); margin:0; flex:none;}
 
 /* palette / chips */
 .palette{display:grid; grid-template-columns:repeat(6,1fr); gap:12px; padding:4px 2px;}
@@ -233,7 +235,7 @@ select.inp{appearance:none; -webkit-appearance:none; background:#fff url("data:i
 .r-info{flex:1; min-width:0; display:flex; align-items:flex-start; gap:8px;}
 .r-txt{font-size:14.5px; font-weight:600; word-break:break-all;}
 .r-freq{font-size:12px; color:var(--sub); margin-top:2px;}
-.r-actions{flex:none; display:flex; align-items:center; gap:10px;}
+.r-actions{flex:none; display:flex; align-items:center; gap:4px;}
 .tgl{width:42px; height:25px; border-radius:99px; background:#e2e2e6; position:relative; transition:background .18s;}
 .tgl::after{
   content:''; position:absolute; top:3px; left:3px; width:19px; height:19px; border-radius:50%;
@@ -830,6 +832,7 @@ function sheetTodoMenu(t) {
     <button class="opt" data-o="edit">✏️&nbsp; 수정하기</button>
     <button class="opt danger" data-o="del" data-confirm>🗑️&nbsp; 삭제하기</button>
     <button class="opt" data-o="memo">📝&nbsp; 메모${t.memo ? '<span class="opt-sub">' + esc(t.memo.length > 40 ? t.memo.slice(0, 40) + '…' : t.memo) + '</span>' : ''}</button>
+    <button class="opt" data-o="postpone">⏭️&nbsp; 내일로 미루기<span class="opt-sub">할 일을 다음 날로 옮겨요 (메모도 같이)</span></button>
     <button class="opt" data-o="tomorrow">➡️&nbsp; 내일 또 하기</button>
     <button class="opt" data-o="other">📅&nbsp; 다른 날 또 하기</button>
   `, { type: 'todo', id: t.id });
@@ -838,7 +841,7 @@ function sheetTodoMenu(t) {
 function sheetEditTodo(t) {
   openSheet(`
     <div class="sh-title">수정하기</div>
-    <input id="edit-inp" class="inp" style="margin-top:12px" value="${esc(t.text)}" autocomplete="off">
+    <input id="edit-inp" class="inp" style="margin-top:12px" value="${esc(t.text)}" autocomplete="off" enterkeyhint="done">
     <div class="row">
       <button class="btn ghostb" data-o="cancel">취소</button>
       <button class="btn" data-o="save-edit">저장</button>
@@ -865,11 +868,22 @@ function sheetPickDate(t) {
     <div class="sh-title">다른 날 또 하기</div>
     <p class="hint">「${esc(t.text)}」을(를) 추가할 날짜를 골라주세요.</p>
     <input type="date" id="pick-date" class="inp" style="margin-top:8px" value="${addDaysStr(t.date, 1)}">
+    ${t.memo ? '<label class="chkrow"><input type="checkbox" id="pick-memo"> 메모도 함께 복사</label>' : ''}
     <div class="row">
       <button class="btn ghostb" data-o="cancel">취소</button>
       <button class="btn" data-o="save-date">추가</button>
     </div>
   `, { type: 'pickdate', id: t.id });
+}
+
+function sheetCopyTomorrow(t) {
+  const nd = parseDate(addDaysStr(t.date, 1));
+  openSheet(`
+    <div class="sh-title">내일 또 하기</div>
+    <p class="hint">「${esc(t.text)}」을(를) ${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가할게요. 이 할 일에는 메모가 있어요 — 메모도 함께 복사할까요?</p>
+    <button class="opt" data-o="copy-plain">➡️&nbsp; 할 일만 추가</button>
+    <button class="opt" data-o="copy-memo">📝&nbsp; 메모도 함께 추가</button>
+  `, { type: 'copytmr', id: t.id });
 }
 
 // --- 카테고리 ---
@@ -891,7 +905,7 @@ function sheetCatForm(cat) {
   openSheet(`
     <div class="sh-title">${cat ? '카테고리 수정' : '새 카테고리'}</div>
     <label class="lbl" for="cf-name">이름</label>
-    <input id="cf-name" class="inp" placeholder="예: 운동" value="${cat ? esc(cat.name) : ''}" autocomplete="off">
+    <input id="cf-name" class="inp" placeholder="예: 운동" value="${cat ? esc(cat.name) : ''}" autocomplete="off" enterkeyhint="done">
     <label class="lbl">색상</label>
     <div class="palette">${sws}</div>
     <div class="row">
@@ -917,6 +931,7 @@ function sheetRoutines() {
       </div>
       <div class="r-actions">
         <button class="tgl ${r.active !== false ? 'on' : ''}" data-rtoggle="${r.id}" title="루틴 켜기/끄기" aria-label="루틴 켜기/끄기"></button>
+        <button class="icon-btn" data-redit="${r.id}">수정</button>
         <button class="icon-btn danger" data-rdel="${r.id}" data-confirm data-arm-label="삭제 확인">삭제</button>
       </div>
     </div>`;
@@ -940,7 +955,7 @@ function readRoutineForm() {
   };
 }
 
-function sheetRoutineForm(rf) {
+function sheetRoutineForm(rf, editId) {
   const t = new Date();
   const lc = liveCats();
   rf = rf || {
@@ -955,7 +970,7 @@ function sheetRoutineForm(rf) {
   const wchips = [0, 1, 2, 3, 4, 5, 6].map(i => `<button class="wchip ${rf.weekdays.includes(i) ? 'on' : ''}" data-w="${i}">${WD[i]}</button>`).join('');
   const mdays = Array.from({ length: 31 }, (_, i) => i + 1).map(n => `<button class="mday ${rf.monthDays.includes(n) ? 'on' : ''}" data-d="${n}">${n}</button>`).join('');
   openSheet(`
-    <div class="sh-title">새 루틴</div>
+    <div class="sh-title">${editId ? '루틴 수정' : '새 루틴'}</div>
     <label class="lbl" for="rf-cat">카테고리</label>
     <select id="rf-cat" class="inp">${catOpts}</select>
     <label class="lbl" for="rf-text">할 일</label>
@@ -975,7 +990,7 @@ function sheetRoutineForm(rf) {
       <button class="btn ghostb" data-o="back-routines">취소</button>
       <button class="btn" data-o="save-routine">저장</button>
     </div>
-  `, { type: 'rform' });
+  `, { type: 'rform', editId: editId || null });
 }
 
 // --- 확인 ---
@@ -1055,7 +1070,18 @@ function sheetSettings() {
 
 // ---------- sheet 이벤트 ----------
 sheetEl.addEventListener('change', e => {
-  if (e.target.id === 'rf-freq') sheetRoutineForm(readRoutineForm());
+  if (e.target.id === 'rf-freq') sheetRoutineForm(readRoutineForm(), sheetCtx && sheetCtx.editId);
+});
+
+// Enter로 저장 (수정하기 · 카테고리 이름) — 모바일 키보드의 완료 키도 동일하게 동작
+sheetEl.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || e.target.tagName === 'TEXTAREA') return;
+  const map = { 'edit-inp': 'save-edit', 'cf-name': 'save-cat' };
+  const act = map[e.target.id];
+  if (!act) return;
+  e.preventDefault();
+  const btn = sheetEl.querySelector(`[data-o="${act}"]`);
+  if (btn) btn.click();
 });
 
 sheetEl.addEventListener('click', async e => {
@@ -1094,6 +1120,16 @@ sheetEl.addEventListener('click', async e => {
     return;
   }
 
+  const redit = b.dataset.redit;
+  if (redit) {
+    const r = state.routines.find(x => x.id === redit);
+    if (r) sheetRoutineForm({
+      categoryId: r.categoryId, text: r.text || '', freq: r.freq || 'daily',
+      weekdays: [...(r.weekdays || [])], monthDays: [...(r.monthDays || [])],
+      start: r.start || todayStr(),
+    }, r.id);
+    return;
+  }
   const rdel = b.dataset.rdel;
   if (rdel) {
     store.deleteRoutine(rdel);
@@ -1119,7 +1155,15 @@ sheetEl.addEventListener('click', async e => {
     if (o === 'edit') sheetEditTodo(t);
     else if (o === 'memo') sheetMemo(t);
     else if (o === 'del') { store.deleteTodo(t.id); toast('삭제했어요'); closeSheet(); }
+    else if (o === 'postpone') {
+      const nds = addDaysStr(t.date, 1);
+      store.updateTodo(t.id, { date: nds, done: false });
+      const nd = parseDate(nds);
+      toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일로 미뤘어요`);
+      closeSheet();
+    }
     else if (o === 'tomorrow') {
+      if (t.memo) { sheetCopyTomorrow(t); return; }
       store.addTodo({ categoryId: t.categoryId, text: t.text, date: addDaysStr(t.date, 1) });
       const nd = parseDate(addDaysStr(t.date, 1));
       toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가했어요`);
@@ -1145,8 +1189,20 @@ sheetEl.addEventListener('click', async e => {
     if (!v) { toast('날짜를 선택해 주세요'); return; }
     const t = state.todos.find(x => x.id === sheetCtx.id);
     if (t) {
-      store.addTodo({ categoryId: t.categoryId, text: t.text, date: v });
+      const withMemo = $('#pick-memo') && $('#pick-memo').checked;
+      store.addTodo({ categoryId: t.categoryId, text: t.text, date: v, memo: withMemo ? (t.memo || '') : '' });
       const nd = parseDate(v);
+      toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가했어요`);
+    }
+    closeSheet();
+    return;
+  }
+  if (sheetCtx.type === 'copytmr' && (o === 'copy-plain' || o === 'copy-memo')) {
+    const t = state.todos.find(x => x.id === sheetCtx.id);
+    if (t) {
+      const nds = addDaysStr(t.date, 1);
+      store.addTodo({ categoryId: t.categoryId, text: t.text, date: nds, memo: o === 'copy-memo' ? (t.memo || '') : '' });
+      const nd = parseDate(nds);
       toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가했어요`);
     }
     closeSheet();
@@ -1178,8 +1234,8 @@ sheetEl.addEventListener('click', async e => {
     if (!f.text) { toast('할 일 내용을 입력해 주세요'); return; }
     if ((f.freq === 'weekly' || f.freq === 'biweekly') && !f.weekdays.length) { toast('요일을 선택해 주세요'); return; }
     if (f.freq === 'monthly' && !f.monthDays.length) { toast('날짜를 선택해 주세요'); return; }
-    store.addRoutine(f);
-    toast('루틴을 추가했어요');
+    if (sheetCtx.editId) { store.updateRoutine(sheetCtx.editId, f); toast('루틴을 수정했어요'); }
+    else { store.addRoutine(f); toast('루틴을 추가했어요'); }
     sheetRoutines();
     return;
   }
