@@ -832,7 +832,7 @@ function sheetTodoMenu(t) {
     <button class="opt" data-o="edit">✏️&nbsp; 수정하기</button>
     <button class="opt danger" data-o="del" data-confirm>🗑️&nbsp; 삭제하기</button>
     <button class="opt" data-o="memo">📝&nbsp; 메모${t.memo ? '<span class="opt-sub">' + esc(t.memo.length > 40 ? t.memo.slice(0, 40) + '…' : t.memo) + '</span>' : ''}</button>
-    <button class="opt" data-o="postpone">⏭️&nbsp; 내일로 미루기<span class="opt-sub">할 일을 다음 날로 옮겨요 (메모도 같이)</span></button>
+    <button class="opt" data-o="postpone">⏭️&nbsp; 다른 날로 미루기<span class="opt-sub">할 일을 고른 날짜로 옮겨요 (메모도 같이)</span></button>
     <button class="opt" data-o="tomorrow">➡️&nbsp; 내일 또 하기</button>
     <button class="opt" data-o="other">📅&nbsp; 다른 날 또 하기</button>
   `, { type: 'todo', id: t.id });
@@ -884,6 +884,18 @@ function sheetCopyTomorrow(t) {
     <button class="opt" data-o="copy-plain">➡️&nbsp; 할 일만 추가</button>
     <button class="opt" data-o="copy-memo">📝&nbsp; 메모도 함께 추가</button>
   `, { type: 'copytmr', id: t.id });
+}
+
+function sheetPostpone(t) {
+  openSheet(`
+    <div class="sh-title">다른 날로 미루기</div>
+    <p class="hint">「${esc(t.text)}」을(를) 옮길 날짜를 골라주세요. 복사가 아니라 이동이라 메모도 함께 옮겨져요.</p>
+    <input type="date" id="postpone-date" class="inp" style="margin-top:8px" value="${addDaysStr(t.date, 1)}">
+    <div class="row">
+      <button class="btn ghostb" data-o="cancel">취소</button>
+      <button class="btn" data-o="save-postpone">미루기</button>
+    </div>
+  `, { type: 'postpone', id: t.id });
 }
 
 // --- 카테고리 ---
@@ -1155,13 +1167,7 @@ sheetEl.addEventListener('click', async e => {
     if (o === 'edit') sheetEditTodo(t);
     else if (o === 'memo') sheetMemo(t);
     else if (o === 'del') { store.deleteTodo(t.id); toast('삭제했어요'); closeSheet(); }
-    else if (o === 'postpone') {
-      const nds = addDaysStr(t.date, 1);
-      store.updateTodo(t.id, { date: nds, done: false });
-      const nd = parseDate(nds);
-      toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일로 미뤘어요`);
-      closeSheet();
-    }
+    else if (o === 'postpone') sheetPostpone(t);
     else if (o === 'tomorrow') {
       if (t.memo) { sheetCopyTomorrow(t); return; }
       store.addTodo({ categoryId: t.categoryId, text: t.text, date: addDaysStr(t.date, 1) });
@@ -1204,6 +1210,19 @@ sheetEl.addEventListener('click', async e => {
       store.addTodo({ categoryId: t.categoryId, text: t.text, date: nds, memo: o === 'copy-memo' ? (t.memo || '') : '' });
       const nd = parseDate(nds);
       toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가했어요`);
+    }
+    closeSheet();
+    return;
+  }
+  if (sheetCtx.type === 'postpone' && o === 'save-postpone') {
+    const v = $('#postpone-date').value;
+    if (!v) { toast('날짜를 선택해 주세요'); return; }
+    const t = state.todos.find(x => x.id === sheetCtx.id);
+    if (t) {
+      if (v === t.date) { toast('지금과 같은 날짜예요'); return; }
+      store.updateTodo(t.id, { date: v, done: false });
+      const nd = parseDate(v);
+      toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일로 미뤘어요`);
     }
     closeSheet();
     return;
