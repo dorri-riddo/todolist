@@ -448,6 +448,22 @@ let migChecked = false;
 
 const cloud = () => !!(FB.db && FB.key);
 
+// 32자 랜덤 동기화 키 (추측 불가한 경로 이름으로 사용)
+function genSyncKey() {
+  const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
+  const a = new Uint8Array(32);
+  crypto.getRandomValues(a);
+  return Array.from(a, x => chars[x % chars.length]).join('');
+}
+function ensureSyncKey(cfg) {
+  if (cfg.syncKey && String(cfg.syncKey).length >= 32) return false;
+  cfg.syncKey = genSyncKey();
+  storage.setItem(K_CFG, JSON.stringify(cfg));
+  // 예전 'main' 경로 데이터를 새 키로 한 번 이어받도록 표시
+  if (!storage.getItem(K_KEY)) storage.setItem(K_KEY, 'main');
+  return true;
+}
+
 async function connectFirebase(cfg) {
   try {
     if (!FB.app) {
@@ -460,10 +476,12 @@ async function connectFirebase(cfg) {
         FB.db = fsM.getFirestore(FB.app);
       }
     }
-    FB.key = 'main';
+    const fresh = ensureSyncKey(cfg);
+    FB.key = cfg.syncKey;
     FB.lastErr = null;
     migChecked = false;
     subscribeCloud();
+    if (fresh) setTimeout(() => toast('🔑 동기화 키를 새로 만들었어요 · 설정에서 확인하세요'), 800);
     if (sheetCtx && sheetCtx.type === 'settings') sheetSettings();
     restProbe(cfg).then(p => {
       if (!p.ok) {
@@ -494,7 +512,7 @@ function fsErrMsg(e) {
 
 // SDK를 거치지 않고 REST로 서버에 직접 물어봐서 원인을 단정한다
 async function restProbe(c) {
-  const base = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(c.projectId)}/databases/(default)/documents/u/main/_meta/ping`;
+  const base = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(c.projectId)}/databases/(default)/documents/u/${encodeURIComponent(c.syncKey || 'main')}/_meta/ping`;
   try {
     const r = await fetch(`${base}?key=${encodeURIComponent(c.apiKey)}`, {
       method: 'PATCH',
@@ -609,7 +627,7 @@ async function pullOldKeyOnce() {
   if (migChecked) return;
   migChecked = true;
   const old = storage.getItem(K_KEY);
-  if (!old || old === 'main') { storage.removeItem(K_KEY); return; }
+  if (!old || old === FB.key) { storage.removeItem(K_KEY); return; }
   try {
     const { getDocs, collection, doc, setDoc } = FB.fns.fs;
     let n = 0;
@@ -1134,7 +1152,8 @@ const RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /u/{key}/{col}/{doc} {
-      allow read, write: if true;
+      // 32자 이상의 동기화 키 경로만 허용 (키를 모르면 접근 불가)
+      allow read, write: if key.size() >= 32;
     }
   }
 }`;
@@ -1142,8 +1161,10 @@ service cloud.firestore {
 function sheetSettings() {
   const cfg = storage.getItem(K_CFG);
   const connected = cloud();
+  let syncKey = '';
+  try { syncKey = (JSON.parse(cfg || 'null') || {}).syncKey || ''; } catch (e) {}
   const statusHtml = connected
-    ? (FB.lastErr ? '⚠️ ' + esc(FB.lastErr) : '☁️ 클라우드 동기화 중 · 같은 구성을 붙여넣은 기기끼리 자동 동기화')
+    ? (FB.lastErr ? '⚠️ ' + esc(FB.lastErr) : '☁️ 클라우드 동기화 중 · 같은 구성 + 같은 동기화 키를 넣은 기기끼리 자동 동기화')
     : FB.lastErr
       ? '⚠️ ' + esc(FB.lastErr)
       : '📱 로컬 모드 · 이 브라우저에만 저장돼요';
@@ -1157,6 +1178,8 @@ function sheetSettings() {
   ...
 }'></textarea>
     <p class="hint">Firebase 콘솔의 <b>const firebaseConfig = { ... }</b> 블록을 그대로 붙여넣어도 돼요.${cfg ? ' 저장된 구성이 이미 있어서 비워두면 그대로 씁니다.' : ''}</p>
+    <label class="lbl" for="key-inp" style="margin-top:10px">동기화 키 (비밀)</label>
+    <input id="key-inp" class="inp" style="font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px" placeholder="비워두면 자동 생성 · 다른 기기의 키를 여기에 붙여넣으면 같은 데이터에 연결" autocomplete="off" spellcheck="false">
     <div class="err" id="cfg-err"></div>
     <button class="btn full" data-o="save-cfg" style="margin-top:6px">연결하기</button>`;
 
@@ -1164,8 +1187,10 @@ function sheetSettings() {
     <div class="sh-title">동기화 설정</div>
     <div class="status" style="white-space:pre-wrap">${statusHtml}</div>
     ${!connected ? configSection : ''}
+    ${connected && syncKey ? `<div class="hint" style="margin-top:8px">🔑 <b>동기화 키</b> — 다른 기기에서 연결할 때 구성과 함께 필요해요. 잃어버리면 데이터를 못 찾으니 안전한 곳에 적어두세요.</div>
+    <div style="display:flex; gap:6px; margin-top:4px"><input class="inp" readonly value="${esc(syncKey)}" style="flex:1; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px" onclick="this.select()"><button class="btn ghostb" data-o="copy-key" style="white-space:nowrap">복사</button></div>` : ''}
     ${cfg ? '<button class="btn full ghostb" data-o="test-conn" style="margin-top:8px">🔍 연결 테스트</button><div id="test-result" style="margin-top:8px; font-size:13px; line-height:1.5; font-weight:600; white-space:pre-wrap;"></div>' : ''}
-    ${cfg ? '<button class="opt danger" style="margin-top:10px" data-o="unlink" data-confirm data-arm-label="한 번 더 누르면 연결이 해제됩니다">Firebase 연결 해제 (로컬 모드로 전환)</button>' : ''}
+    ${cfg ? '<button class="opt danger" style="margin-top:10px" data-o="unlink" data-confirm data-arm-label="한 번 더 누르면 해제 · 동기화 키를 먼저 적어두세요">Firebase 연결 해제 (로컬 모드로 전환)</button>' : ''}
     <details class="guide">
       <summary>Firebase 무료 설정 방법</summary>
       <ol>
@@ -1176,9 +1201,9 @@ function sheetSettings() {
       <pre>${esc(RULES)}</pre>
       <ol start="4">
         <li>프로젝트 설정(⚙️) → 일반 → 내 앱 → 웹 앱(&lt;/&gt;) 등록 → <b>firebaseConfig</b> 복사 → 위 칸에 붙여넣고 연결</li>
-        <li>다른 기기에서도 같은 구성을 붙여넣으면 끝 — 자동으로 같은 데이터에 연결돼요</li>
+        <li>연결되면 <b>동기화 키</b>가 자동으로 만들어져요. 다른 기기에서는 같은 구성 + 이 키를 붙여넣으면 같은 데이터에 연결돼요</li>
       </ol>
-      <p class="hint">구성(firebaseConfig)만 알면 데이터에 접근할 수 있는 구조이니 구성을 공개된 곳에 올리지만 마세요. Firebase가 보안 규칙 안내 메일을 보낼 수 있는데 개인 용도 구조상 예상된 안내입니다. 무료 한도는 하루 읽기 5만 · 쓰기 2만 회로 개인 투두 용도로는 충분해요.</p>
+      <p class="hint">데이터는 32자 랜덤 동기화 키 경로 아래에 저장되고, 규칙이 그 길이 이상의 경로만 허용하므로 키를 모르면 접근할 수 없어요. 구성과 키는 공개된 곳에 올리지 마세요. 무료 한도는 하루 읽기 5만 · 쓰기 2만 회로 개인 투두 용도로는 충분해요.</p>
     </details>
   `, { type: 'settings' });
 }
@@ -1379,12 +1404,23 @@ sheetEl.addEventListener('click', async e => {
         $('#cfg-err').textContent = '구성을 해석할 수 없어요. firebaseConfig 객체 전체를 붙여넣어 주세요.';
         return;
       }
+      const kraw = ($('#key-inp') ? $('#key-inp').value : '').trim();
+      if (kraw && kraw.length < 32) { $('#cfg-err').textContent = '동기화 키는 32자 이상이어야 해요. 다른 기기의 설정에서 복사한 키를 그대로 붙여넣어 주세요.'; return; }
+      if (kraw) c.syncKey = kraw;
       storage.setItem(K_CFG, JSON.stringify(c));
-      if (FB.app && raw) { location.reload(); return; }
+      if (FB.app && (raw || kraw)) { location.reload(); return; }
       b.textContent = '연결 중…';
       const ok = await connectFirebase(c);
       if (ok) toast('연결됐어요');
       sheetSettings();
+      return;
+    }
+    if (o === 'copy-key') {
+      try {
+        const c = JSON.parse(storage.getItem(K_CFG) || 'null');
+        await navigator.clipboard.writeText(c.syncKey || '');
+        toast('동기화 키를 복사했어요');
+      } catch (e) { toast('복사 실패 · 키를 길게 눌러 직접 복사해 주세요'); }
       return;
     }
     if (o === 'test-conn') {
@@ -1399,7 +1435,7 @@ sheetEl.addEventListener('click', async e => {
         const p = await restProbe(c);
         if (p.ok) {
           if (!FB.db) await connectFirebase(c);
-          else { FB.key = 'main'; FB.lastErr = null; migChecked = false; subscribeCloud(); }
+          else { ensureSyncKey(c); FB.key = c.syncKey; FB.lastErr = null; migChecked = false; subscribeCloud(); }
           sheetSettings();
           show('✅ 클라우드 연결 정상! 서버에 직접 쓰고 확인까지 완료했어요.\n같은 구성을 붙여넣은 기기끼리 자동으로 동기화됩니다.\n프로젝트: ' + (c.projectId || ''), true);
         } else {
