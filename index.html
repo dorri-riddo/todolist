@@ -292,6 +292,44 @@ select.inp{appearance:none; -webkit-appearance:none; background:#fff url("data:i
 }
 .guide code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; background:#f0f0f2; padding:1px 5px; border-radius:5px;}
 
+/* ---------- search ---------- */
+.s-wrap{position:relative; margin-top:12px;}
+.s-wrap .inp{padding-right:44px;}
+.s-clear{
+  position:absolute; right:9px; top:50%; transform:translateY(-50%);
+  width:26px; height:26px; border-radius:50%; background:#ececee; color:#5a5c60;
+  font-size:15px; line-height:1; display:inline-flex; align-items:center; justify-content:center;
+}
+.s-clear:hover{background:#e0e0e4;}
+.s-clear[hidden]{display:none;}
+.s-bar{display:flex; align-items:center; gap:10px; margin-top:10px;}
+.seg{flex:1; display:flex; gap:3px; background:#f2f2f4; border-radius:11px; padding:3px;}
+.seg button{flex:1; padding:7px 0; border-radius:9px; font-size:12.5px; font-weight:700; color:var(--sub); transition:background .12s, color .12s;}
+.seg button.on{background:#fff; color:var(--txt); box-shadow:0 1px 3px rgba(0,0,0,.08);}
+.s-cnt{flex:none; font-size:12.5px; font-weight:700; color:var(--sub); min-width:2.6em; text-align:right;}
+.s-res{margin:6px -8px 0; padding:0 8px; max-height:min(56vh, 520px); overflow-y:auto; overscroll-behavior:contain;}
+.s-day{
+  position:sticky; top:0; z-index:1; background:var(--card);
+  display:flex; align-items:center; gap:7px; padding:12px 4px 5px;
+  font-size:12.5px; font-weight:800; color:#3a3c40;
+}
+.s-rel{font-size:10.5px; font-weight:800; color:var(--sub); background:#f2f2f4; padding:2px 7px; border-radius:99px;}
+.s-rel.now{background:var(--txt); color:#fff;}
+.s-div{margin:14px 4px 0; padding-top:10px; border-top:1px dashed var(--line2); font-size:11.5px; font-weight:800; color:var(--sub);}
+.s-item{display:flex; align-items:flex-start; gap:10px; width:100%; text-align:left; padding:8px 6px; border-radius:11px;}
+.s-item:hover{background:#f6f6f7;}
+.s-dot{flex:none; width:9px; height:9px; border-radius:50%; margin-top:7px;}
+.s-body{flex:1; min-width:0; display:block;}
+.s-txt{display:block; font-size:14.5px; font-weight:600; word-break:break-all; line-height:1.45;}
+.s-item.done .s-txt{color:#b9bcc2; text-decoration:line-through;}
+.s-cat{display:inline-block; font-size:11px; font-weight:700; color:var(--sub); margin-left:6px; text-decoration:none;}
+.s-memo{display:block; font-size:12.5px; color:var(--sub); margin-top:3px; word-break:break-all; border-left:2px solid #ececee; padding-left:8px; line-height:1.45;}
+.s-loading{font-size:12.5px; color:var(--sub); font-weight:600; padding:8px 4px 0;}
+mark{background:#fff3bf; color:inherit; border-radius:3px; padding:0 1px;}
+.s-item.done mark{background:#f0f0f2;}
+@keyframes flash{0%,55%{background:#fff3bf;} 100%{background:transparent;}}
+.todo.hl{animation:flash 2.6s ease-out;}
+
 /* toast */
 .toast{
   position:fixed; left:50%; bottom:calc(26px + env(safe-area-inset-bottom)); transform:translate(-50%,14px);
@@ -314,6 +352,7 @@ select.inp{appearance:none; -webkit-appearance:none; background:#fff url("data:i
 <header class="top">
   <div class="logo">todo<span>.</span></div>
   <div class="top-actions">
+    <button class="hbtn icon" id="btn-search" title="검색 (Ctrl+K)" aria-label="검색"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.6-4.6"/></svg></button>
     <button class="hbtn" id="btn-routines">루틴</button>
     <button class="hbtn icon" id="btn-settings" title="동기화 설정" aria-label="동기화 설정">⚙</button>
   </div>
@@ -417,6 +456,7 @@ const state = {
   selected: todayStr(),
   addingCat: null,
   focusNew: false,
+  flashId: null,   // 검색에서 이동해 온 할 일을 잠깐 강조 표시
 };
 
 // 드래그 정렬 진행 상태 (드래그 중엔 다시 그리지 않는다)
@@ -580,6 +620,9 @@ function subscribeCloud() {
   }, cloudBail));
   subTodosRange();
   pullOldKeyOnce();
+  // 새 키로 연결되면 검색용 캐시도 다시 받는다
+  searchUI.fetched.future = 0; searchUI.fetched.all = 0;
+  if (sheetCtx && sheetCtx.type === 'search') fetchForSearch();
 }
 
 function subTodosRange() {
@@ -806,7 +849,7 @@ const GRIP = `<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor
   <circle cx="2.6" cy="12.6" r="1.35"/><circle cx="7.4" cy="12.6" r="1.35"/></svg>`;
 
 const todoRow = (t, c) => `
-  <div class="todo${t.done ? ' done' : ''}" style="--c:${c}" data-id="${t.id}" data-cid="${t.categoryId}">
+  <div class="todo${t.done ? ' done' : ''}${state.flashId === t.id ? ' hl' : ''}" style="--c:${c}" data-id="${t.id}" data-cid="${t.categoryId}">
     <button class="chk" data-toggle="${t.id}" aria-label="완료 표시"></button>
     <div class="t-body" data-menu="${t.id}">
       <div class="t-txt">${esc(t.text)}${t.routineId ? '<span class="rt">↻</span>' : ''}</div>
@@ -917,6 +960,7 @@ function render() {
   if (dnd.active) { dnd.dirty = true; return; }
   renderCalendar();
   renderList();
+  if (sheetCtx && sheetCtx.type === 'search') renderSearchResults();
 }
 
 // ---------- sheet (바텀시트/모달) ----------
@@ -946,7 +990,8 @@ const pillHtml = (cat, sm) => cat
   : '';
 
 // --- 할 일 메뉴 ---
-function sheetTodoMenu(t) {
+// fs(fromSearch)가 참이면 검색 결과에서 열린 것 → 작업을 마치면 검색 결과로 돌아간다
+function sheetTodoMenu(t, fs) {
   const cat = state.cats.find(c => c.id === t.categoryId);
   openSheet(`
     <div class="sh-head">${pillHtml(cat, true)}<div class="sh-title">${esc(t.text)}</div></div>
@@ -956,10 +1001,17 @@ function sheetTodoMenu(t) {
     <button class="opt" data-o="postpone">⏭️&nbsp; 다른 날로 미루기<span class="opt-sub">할 일을 고른 날짜로 옮겨요 (메모도 같이)</span></button>
     <button class="opt" data-o="tomorrow">➡️&nbsp; 내일 또 하기</button>
     <button class="opt" data-o="other">📅&nbsp; 다른 날 또 하기</button>
-  `, { type: 'todo', id: t.id });
+    ${fs ? '<button class="opt" data-o="back-search" style="margin-top:6px; border-top:1px solid #f2f2f4; border-radius:0 0 13px 13px">🔍&nbsp; 검색 결과로 돌아가기</button>' : ''}
+  `, { type: 'todo', id: t.id, fromSearch: !!fs });
 }
 
-function sheetEditTodo(t) {
+// 할 일 관련 작업을 마쳤을 때: 검색에서 왔으면 검색 결과로, 아니면 닫기
+function finishTodoAction() {
+  if (sheetCtx && sheetCtx.fromSearch) sheetSearch();
+  else closeSheet();
+}
+
+function sheetEditTodo(t, fs) {
   openSheet(`
     <div class="sh-title">수정하기</div>
     <input id="edit-inp" class="inp" style="margin-top:12px" value="${esc(t.text)}" autocomplete="off" enterkeyhint="done">
@@ -967,11 +1019,11 @@ function sheetEditTodo(t) {
       <button class="btn ghostb" data-o="cancel">취소</button>
       <button class="btn" data-o="save-edit">저장</button>
     </div>
-  `, { type: 'edit', id: t.id });
+  `, { type: 'edit', id: t.id, fromSearch: !!fs });
   const i = $('#edit-inp'); i.focus(); try { i.setSelectionRange(i.value.length, i.value.length); } catch (e) {}
 }
 
-function sheetMemo(t) {
+function sheetMemo(t, fs) {
   openSheet(`
     <div class="sh-title">메모</div>
     <p class="hint">「${esc(t.text)}」에 대한 메모예요. 비우고 저장하면 메모가 지워져요.</p>
@@ -980,11 +1032,11 @@ function sheetMemo(t) {
       <button class="btn ghostb" data-o="cancel">취소</button>
       <button class="btn" data-o="save-memo">저장</button>
     </div>
-  `, { type: 'memo', id: t.id });
+  `, { type: 'memo', id: t.id, fromSearch: !!fs });
   $('#memo-inp').focus();
 }
 
-function sheetPickDate(t) {
+function sheetPickDate(t, fs) {
   openSheet(`
     <div class="sh-title">다른 날 또 하기</div>
     <p class="hint">「${esc(t.text)}」을(를) 추가할 날짜를 골라주세요.</p>
@@ -994,20 +1046,20 @@ function sheetPickDate(t) {
       <button class="btn ghostb" data-o="cancel">취소</button>
       <button class="btn" data-o="save-date">추가</button>
     </div>
-  `, { type: 'pickdate', id: t.id });
+  `, { type: 'pickdate', id: t.id, fromSearch: !!fs });
 }
 
-function sheetCopyTomorrow(t) {
+function sheetCopyTomorrow(t, fs) {
   const nd = parseDate(addDaysStr(t.date, 1));
   openSheet(`
     <div class="sh-title">내일 또 하기</div>
     <p class="hint">「${esc(t.text)}」을(를) ${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가할게요. 이 할 일에는 메모가 있어요 — 메모도 함께 복사할까요?</p>
     <button class="opt" data-o="copy-plain">➡️&nbsp; 할 일만 추가</button>
     <button class="opt" data-o="copy-memo">📝&nbsp; 메모도 함께 추가</button>
-  `, { type: 'copytmr', id: t.id });
+  `, { type: 'copytmr', id: t.id, fromSearch: !!fs });
 }
 
-function sheetPostpone(t) {
+function sheetPostpone(t, fs) {
   openSheet(`
     <div class="sh-title">다른 날로 미루기</div>
     <p class="hint">「${esc(t.text)}」을(를) 옮길 날짜를 골라주세요. 복사가 아니라 이동이라 메모도 함께 옮겨져요.</p>
@@ -1016,7 +1068,230 @@ function sheetPostpone(t) {
       <button class="btn ghostb" data-o="cancel">취소</button>
       <button class="btn" data-o="save-postpone">미루기</button>
     </div>
-  `, { type: 'postpone', id: t.id });
+  `, { type: 'postpone', id: t.id, fromSearch: !!fs });
+}
+
+// --- 검색 ---
+// 검색 상태는 시트를 닫아도 유지된다 (다시 열면 마지막 검색어와 범위가 그대로)
+const searchUI = { q: '', scope: 'future', fetched: { future: 0, all: 0 }, loading: false };
+
+// 초성 검색: 'ㅎㅇ' → '회의', '하이' 등에 매칭
+const CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+const isCho = k => /^[ㄱ-ㅎ]+$/.test(k);
+function choseong(s) {
+  let o = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    o += (c >= 0xAC00 && c <= 0xD7A3) ? CHO[Math.floor((c - 0xAC00) / 588)] : s[i];
+  }
+  return o;
+}
+const searchTerms = () => searchUI.q.toLowerCase().split(/\s+/).filter(Boolean);
+
+function todoMatches(t, terms) {
+  if (!terms.length) return true;
+  const raw = String(t.text || '') + '\n' + String(t.memo || '');
+  const low = raw.toLowerCase();
+  let cho = null;
+  return terms.every(k => isCho(k) ? (cho ||= choseong(raw)).includes(k) : low.includes(k));
+}
+
+// 검색어와 일치하는 부분에 <mark> 표시 (HTML 이스케이프 포함)
+function hl(str, terms) {
+  const s = String(str || '');
+  if (!terms.length || !s) return esc(s);
+  const low = s.toLowerCase();
+  let cho = null;
+  const ranges = [];
+  for (const k of terms) {
+    const hay = isCho(k) ? (cho ||= choseong(s)) : low;
+    let i = 0;
+    while ((i = hay.indexOf(k, i)) >= 0) { ranges.push([i, i + k.length]); i += k.length; }
+  }
+  if (!ranges.length) return esc(s);
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const r of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]);
+    else merged.push([r[0], r[1]]);
+  }
+  let out = '', pos = 0;
+  for (const [a, b] of merged) { out += esc(s.slice(pos, a)) + '<mark>' + esc(s.slice(a, b)) + '</mark>'; pos = b; }
+  return out + esc(s.slice(pos));
+}
+
+// 메모는 일치하는 부분 주변만 잘라서 보여준다
+function memoSnippet(memo, terms) {
+  const s = String(memo || '').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  const W = 72;
+  if (s.length <= W) return hl(s, terms);
+  const low = s.toLowerCase(); let cho = null;
+  let idx = -1;
+  for (const k of terms) {
+    const i = (isCho(k) ? (cho ||= choseong(s)) : low).indexOf(k);
+    if (i >= 0 && (idx < 0 || i < idx)) idx = i;
+  }
+  let a = idx > 28 ? idx - 24 : 0;
+  let b = Math.min(s.length, a + W);
+  if (b === s.length) a = Math.max(0, b - W);
+  return (a > 0 ? '…' : '') + hl(s.slice(a, b), terms) + (b < s.length ? '…' : '');
+}
+
+function searchTodos() {
+  const terms = searchTerms();
+  const today = todayStr();
+  const live = liveCats();
+  const liveIds = new Set(live.map(c => c.id));
+  const catOrd = new Map(live.map(c => [c.id, c.order || 0]));
+  const out = [];
+  for (const t of state.todos) {
+    if (t.deleted || !liveIds.has(t.categoryId)) continue;
+    if (searchUI.scope !== 'all' && t.date < today) continue;
+    if (!todoMatches(t, terms)) continue;
+    out.push(t);
+  }
+  // 다가오는 날짜는 가까운 순, 지난 날짜는 최근 순. 같은 날 안에서는 화면 순서와 동일
+  out.sort((a, b) => {
+    const af = a.date >= today, bf = b.date >= today;
+    if (af !== bf) return af ? -1 : 1;
+    if (a.date !== b.date) return af ? (a.date < b.date ? -1 : 1) : (a.date > b.date ? -1 : 1);
+    const co = (catOrd.get(a.categoryId) || 0) - (catOrd.get(b.categoryId) || 0);
+    if (co) return co;
+    return (a.order || 0) - (b.order || 0);
+  });
+  return out;
+}
+
+function searchDayHeader(ds) {
+  const d = parseDate(ds), t = parseDate(todayStr());
+  const diff = Math.round((d - t) / 864e5);
+  const rel = diff === 0 ? '오늘' : diff === 1 ? '내일' : diff === 2 ? '모레' : diff === -1 ? '어제' : diff > 0 ? `D+${diff}` : `D-${-diff}`;
+  const yr = d.getFullYear() !== t.getFullYear() ? `${d.getFullYear()}년 ` : '';
+  return `<div class="s-day">${yr}${d.getMonth() + 1}월 ${d.getDate()}일 ${WD[d.getDay()]}요일<span class="s-rel${diff === 0 ? ' now' : ''}">${rel}</span></div>`;
+}
+
+function searchItem(t, terms) {
+  const cat = state.cats.find(c => c.id === t.categoryId);
+  const c = cat ? cat.color : '#c7cad0';
+  const memo = memoSnippet(t.memo, terms);
+  return `
+    <button class="s-item${t.done ? ' done' : ''}" data-go="${t.id}">
+      <span class="s-dot" style="background:${c}"></span>
+      <span class="s-body">
+        <span class="s-txt">${hl(t.text, terms)}${t.routineId ? '<span class="rt">↻</span>' : ''}${cat ? `<span class="s-cat">${esc(cat.name)}</span>` : ''}</span>
+        ${memo ? `<span class="s-memo">${memo}</span>` : ''}
+      </span>
+    </button>`;
+}
+
+function renderSearchResults() {
+  const box = $('#s-res');
+  if (!box) return;
+  const terms = searchTerms();
+  const list = searchTodos();
+  const LIMIT = 150;
+  const shown = list.slice(0, LIMIT);
+  const cnt = $('#s-cnt');
+  if (cnt) cnt.textContent = list.length ? `${list.length}개` : '';
+
+  let html = searchUI.loading ? '<div class="s-loading">☁️ 클라우드에서 불러오는 중…</div>' : '';
+  if (!shown.length) {
+    if (terms.length) {
+      html += `<div class="empty-sm">「${esc(searchUI.q.trim())}」에 맞는 할 일이 없어요${searchUI.scope !== 'all' ? '<br><span style="font-size:12px">지난 날짜까지 찾으려면 <b>전체 기간</b>을 눌러보세요</span>' : ''}</div>`;
+    } else {
+      html += `<div class="empty-sm">${searchUI.scope !== 'all' ? '오늘 이후에 적어둔 할 일이 없어요' : '할 일이 없어요'}</div>`;
+    }
+    box.innerHTML = html;
+    return;
+  }
+  const today = todayStr();
+  let lastDate = null, hadFuture = false, divided = false;
+  for (const t of shown) {
+    if (t.date >= today) hadFuture = true;
+    else if (hadFuture && !divided) { html += '<div class="s-div">지난 날짜</div>'; divided = true; }
+    if (t.date !== lastDate) { html += searchDayHeader(t.date); lastDate = t.date; }
+    html += searchItem(t, terms);
+  }
+  if (list.length > LIMIT) html += `<div class="empty-sm">외 ${list.length - LIMIT}개 · 검색어로 더 좁혀보세요</div>`;
+  box.innerHTML = html;
+}
+
+// 클라우드 모드에선 달력 범위(현재 달) 밖의 할 일이 아직 로컬에 없을 수 있어서 한 번 받아온다
+function mergeDocs(sk, snap) {
+  const arr = state[sk];
+  let changed = false;
+  for (const d of snap.docs) {
+    const sd = d.data();
+    if (!sd || !sd.id) continue;
+    const i = arr.findIndex(x => x.id === sd.id);
+    if (i < 0) { arr.push(sd); changed = true; }
+    else if ((sd.updatedAt || sd.createdAt || 0) > (arr[i].updatedAt || arr[i].createdAt || 0)) { arr[i] = sd; changed = true; }
+  }
+  return changed;
+}
+
+async function fetchForSearch() {
+  if (!cloud()) return;
+  const key = searchUI.scope === 'all' ? 'all' : 'future';
+  if (Date.now() - searchUI.fetched[key] < 60000) return; // 1분 안에는 다시 받지 않는다
+  searchUI.loading = true;
+  renderSearchResults();
+  let changed = false;
+  try {
+    const { getDocs, query, where } = FB.fns.fs;
+    const q = key === 'all' ? fbCol('todos') : query(fbCol('todos'), where('date', '>=', todayStr()));
+    const snap = await getDocs(q);
+    changed = mergeDocs('todos', snap);
+    searchUI.fetched[key] = Date.now();
+    if (key === 'all') searchUI.fetched.future = Date.now();
+  } catch (e) { oops(e); }
+  searchUI.loading = false;
+  if (changed) { saveLocal(); render(); }
+  if (sheetCtx && sheetCtx.type === 'search') renderSearchResults();
+}
+
+function sheetSearch() {
+  openSheet(`
+    <div class="sh-title">검색</div>
+    <div class="s-wrap">
+      <input id="s-inp" class="inp" placeholder="할 일 · 메모 검색 (초성도 돼요)" value="${esc(searchUI.q)}" autocomplete="off" enterkeyhint="search">
+      <button class="s-clear" data-sclear aria-label="지우기" ${searchUI.q ? '' : 'hidden'}>×</button>
+    </div>
+    <div class="s-bar">
+      <div class="seg">
+        <button class="${searchUI.scope !== 'all' ? 'on' : ''}" data-scope="future">오늘 이후</button>
+        <button class="${searchUI.scope === 'all' ? 'on' : ''}" data-scope="all">전체 기간</button>
+      </div>
+      <span class="s-cnt" id="s-cnt"></span>
+    </div>
+    <div class="s-res" id="s-res"></div>
+  `, { type: 'search' });
+  renderSearchResults();
+  fetchForSearch();
+  const i = $('#s-inp');
+  i.focus();
+  try { i.select(); } catch (e) {}
+}
+
+// 검색 결과 → 해당 날짜로 이동하고 그 할 일의 메뉴를 바로 연다
+function goToTodo(id) {
+  const t = state.todos.find(x => x.id === id && !x.deleted);
+  if (!t) { toast('할 일을 찾을 수 없어요'); renderSearchResults(); return; }
+  state.selected = t.date;
+  state.addingCat = null;
+  const d = parseDate(t.date);
+  if (d.getMonth() !== state.month.getMonth() || d.getFullYear() !== state.month.getFullYear()) {
+    state.month = new Date(d.getFullYear(), d.getMonth(), 1);
+    subTodosRange();
+  }
+  state.flashId = t.id;
+  sheetTodoMenu(t, true);
+  render();
+  const el = listEl.querySelector(`.todo[data-id="${t.id}"]`);
+  if (el) { try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }
+  setTimeout(() => { if (state.flashId === t.id) state.flashId = null; }, 3000);
 }
 
 // --- 카테고리 ---
@@ -1213,8 +1488,25 @@ sheetEl.addEventListener('change', e => {
   if (e.target.id === 'rf-freq') sheetRoutineForm(readRoutineForm(), sheetCtx && sheetCtx.editId);
 });
 
+// 검색어 입력 → 결과만 다시 그린다 (입력칸은 그대로 두어 포커스 유지)
+let searchT = null;
+sheetEl.addEventListener('input', e => {
+  if (e.target.id !== 's-inp') return;
+  searchUI.q = e.target.value;
+  const cl = sheetEl.querySelector('[data-sclear]');
+  if (cl) cl.hidden = !searchUI.q;
+  clearTimeout(searchT);
+  searchT = setTimeout(renderSearchResults, 80);
+});
+
 // Enter로 저장 (수정하기 · 카테고리 이름) — 모바일 키보드의 완료 키도 동일하게 동작
 sheetEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.id === 's-inp') {
+    e.preventDefault();
+    // 모바일에선 검색 키를 누르면 키보드를 내려서 결과가 보이게 한다
+    if (matchMedia('(pointer:coarse)').matches) e.target.blur();
+    return;
+  }
   if (e.key !== 'Enter' || e.target.tagName === 'TEXTAREA') return;
   const map = { 'edit-inp': 'save-edit', 'cf-name': 'save-cat' };
   const act = map[e.target.id];
@@ -1278,9 +1570,27 @@ sheetEl.addEventListener('click', async e => {
     return;
   }
 
+  // 검색
+  if (b.dataset.go) { goToTodo(b.dataset.go); return; }
+  if (b.dataset.scope) {
+    searchUI.scope = b.dataset.scope;
+    sheetEl.querySelectorAll('[data-scope]').forEach(x => x.classList.toggle('on', x.dataset.scope === searchUI.scope));
+    renderSearchResults();
+    fetchForSearch();
+    return;
+  }
+  if ('sclear' in b.dataset) {
+    searchUI.q = '';
+    const i = $('#s-inp');
+    if (i) { i.value = ''; i.focus(); }
+    b.hidden = true;
+    renderSearchResults();
+    return;
+  }
+
   const o = b.dataset.o;
   if (!o) return;
-  if (o === 'cancel') { closeSheet(); return; }
+  if (o === 'cancel') { finishTodoAction(); return; }
   if (o === 'new-routine') {
     if (!liveCats().length) { toast('카테고리를 먼저 만들어 주세요'); return; }
     sheetRoutineForm(null); return;
@@ -1290,32 +1600,36 @@ sheetEl.addEventListener('click', async e => {
 
   // 할 일 메뉴
   if (sheetCtx.type === 'todo') {
+    const fs = !!sheetCtx.fromSearch;
     const t = state.todos.find(x => x.id === sheetCtx.id);
-    if (!t) { closeSheet(); return; }
-    if (o === 'edit') sheetEditTodo(t);
-    else if (o === 'memo') sheetMemo(t);
-    else if (o === 'del') { store.deleteTodo(t.id); toast('삭제했어요'); closeSheet(); }
-    else if (o === 'postpone') sheetPostpone(t);
+    if (!t) { finishTodoAction(); return; }
+    if (o === 'back-search') sheetSearch();
+    else if (o === 'edit') sheetEditTodo(t, fs);
+    else if (o === 'memo') sheetMemo(t, fs);
+    else if (o === 'del') { store.deleteTodo(t.id); toast('삭제했어요'); finishTodoAction(); }
+    else if (o === 'postpone') sheetPostpone(t, fs);
     else if (o === 'tomorrow') {
-      if (t.memo) { sheetCopyTomorrow(t); return; }
+      if (t.memo) { sheetCopyTomorrow(t, fs); return; }
       store.addTodo({ categoryId: t.categoryId, text: t.text, date: addDaysStr(t.date, 1) });
       const nd = parseDate(addDaysStr(t.date, 1));
       toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가했어요`);
-      closeSheet();
+      finishTodoAction();
     }
-    else if (o === 'other') sheetPickDate(t);
+    else if (o === 'other') sheetPickDate(t, fs);
     return;
   }
   if (sheetCtx.type === 'edit' && o === 'save-edit') {
     const v = $('#edit-inp').value.trim();
     if (!v) { toast('내용을 입력해 주세요'); return; }
     store.updateTodo(sheetCtx.id, { text: v });
-    closeSheet();
+    if (sheetCtx.fromSearch) toast('수정했어요');
+    finishTodoAction();
     return;
   }
   if (sheetCtx.type === 'memo' && o === 'save-memo') {
     store.updateTodo(sheetCtx.id, { memo: $('#memo-inp').value.trim() });
-    closeSheet();
+    if (sheetCtx.fromSearch) toast('메모를 저장했어요');
+    finishTodoAction();
     return;
   }
   if (sheetCtx.type === 'pickdate' && o === 'save-date') {
@@ -1328,7 +1642,7 @@ sheetEl.addEventListener('click', async e => {
       const nd = parseDate(v);
       toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가했어요`);
     }
-    closeSheet();
+    finishTodoAction();
     return;
   }
   if (sheetCtx.type === 'copytmr' && (o === 'copy-plain' || o === 'copy-memo')) {
@@ -1339,7 +1653,7 @@ sheetEl.addEventListener('click', async e => {
       const nd = parseDate(nds);
       toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가했어요`);
     }
-    closeSheet();
+    finishTodoAction();
     return;
   }
   if (sheetCtx.type === 'postpone' && o === 'save-postpone') {
@@ -1352,7 +1666,7 @@ sheetEl.addEventListener('click', async e => {
       const nd = parseDate(v);
       toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일로 미뤘어요`);
     }
-    closeSheet();
+    finishTodoAction();
     return;
   }
 
@@ -1668,6 +1982,16 @@ $('#cal-today').addEventListener('click', () => {
 
 $('#btn-routines').addEventListener('click', sheetRoutines);
 $('#btn-settings').addEventListener('click', sheetSettings);
+$('#btn-search').addEventListener('click', sheetSearch);
+
+// 데스크톱 단축키: Ctrl/⌘+K 또는 (입력 중이 아닐 때) / 로 검색 열기
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); sheetSearch(); return; }
+  if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey
+      && !['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) && !sheetEl.classList.contains('open')) {
+    e.preventDefault(); sheetSearch();
+  }
+});
 
 // ---------- init ----------
 loadLocal();
