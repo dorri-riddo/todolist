@@ -41,6 +41,20 @@ input,select,textarea{font-family:inherit; color:inherit;}
 .hbtn:active{transform:scale(.97);}
 .hbtn.icon{width:34px; height:34px; padding:0; display:inline-flex; align-items:center; justify-content:center; font-size:15px;}
 
+/* 동기화 상태: 평소엔 점 하나, 문제가 있을 때만 글자가 붙는다 */
+.top-actions > .hbtn{flex-shrink:0; white-space:nowrap;}
+.hbtn.sync{display:none; width:34px; height:34px; padding:0; align-items:center; justify-content:center; gap:6px; font-size:12px; color:var(--sub);}
+.hbtn.sync.on{display:inline-flex;}
+.hbtn.sync.sync-lbl{width:auto; padding:0 12px 0 11px;}
+.sync i{width:8px; height:8px; border-radius:50%; background:var(--faint); flex:none; transition:background .25s;}
+.sync span:empty{display:none;}
+.sync[data-s="ok"] i{background:#2fb46c;}
+.sync[data-s="pending"] i{background:#f5a524;}
+.sync[data-s="wait"] i{animation:syncPulse 1.2s ease-in-out infinite;}
+.sync[data-s="error"] i{background:var(--danger);}
+.sync[data-s="error"]{color:var(--danger); border-color:#f6c9ca;}
+@keyframes syncPulse{50%{opacity:.3;}}
+
 /* ---------- layout ---------- */
 .app{max-width:1060px; margin:0 auto; padding:14px 14px 60px; display:grid; gap:14px;}
 @media(min-width:900px){
@@ -352,6 +366,7 @@ mark{background:#fff3bf; color:inherit; border-radius:3px; padding:0 1px;}
 <header class="top">
   <div class="logo">todo<span>.</span></div>
   <div class="top-actions">
+    <button class="hbtn sync" id="sync-dot" aria-label="동기화 상태"><i></i><span></span></button>
     <button class="hbtn icon" id="btn-search" title="검색 (Ctrl+K)" aria-label="검색"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.6-4.6"/></svg></button>
     <button class="hbtn" id="btn-routines">루틴</button>
     <button class="hbtn icon" id="btn-settings" title="동기화 설정" aria-label="동기화 설정">⚙</button>
@@ -417,6 +432,28 @@ const storage = (() => {
 const K_DATA = 'tdm_data';
 const K_CFG  = 'tdm_cfg';
 const K_KEY  = 'tdm_key';
+const K_OUT  = 'tdm_out';   // 클라우드에 아직 못 보낸 항목 목록 (col/id → updatedAt)
+const K_SKEW = 'tdm_skew';  // 이 기기 시계와 서버 시계의 차이(ms)
+
+function getCfg() {
+  try { const c = JSON.parse(storage.getItem(K_CFG) || 'null'); return c && c.apiKey ? c : null; } catch (e) { return null; }
+}
+
+// 기기 시계가 서버와 어긋나 있으면 보정해서 쓴다 (수정 시각 비교가 기기 시계에 의존하므로)
+let clockOffset = Number(storage.getItem(K_SKEW)) || 0;
+function setClockOffset(o) {
+  o = Math.round(o);
+  if (!isFinite(o) || Math.abs(o) > 7 * 864e5) return;
+  clockOffset = Math.abs(o) < 1000 ? 0 : o;
+  storage.setItem(K_SKEW, String(clockOffset));
+}
+
+// 연결이 끊긴 동안 수정한 항목은 여기에 적어 두고, 다시 연결되면 서버와 비교해서 보낸다
+let outbox = (() => { try { return JSON.parse(storage.getItem(K_OUT) || '{}') || {}; } catch (e) { return {}; } })();
+function outboxAdd(k, v) { outbox[k] = v; storage.setItem(K_OUT, JSON.stringify(outbox)); updateSync(); }
+function outboxDrop(k, v) {
+  if (k in outbox && outbox[k] === v) { delete outbox[k]; storage.setItem(K_OUT, JSON.stringify(outbox)); }
+}
 
 
 // ---------- utils ----------
@@ -483,7 +520,14 @@ function saveLocal() {
 // ---------- Firebase ----------
 const FB_VER = '10.12.2';
 const FB_URL = n => `https://www.gstatic.com/firebasejs/${FB_VER}/firebase-${n}.js`;
-const FB = { app: null, db: null, key: null, fns: null, unsubs: [], todoUnsub: null };
+const FB = {
+  app: null, db: null, key: null, fns: null, unsubs: [], todoUnsub: null,
+  connecting: null,     // 연결 진행 중인 Promise
+  bailed: false,        // 오류로 끊겨서 자동 재연결을 기다리는 중
+  meta: {},             // 리스너별 { fromCache, pending }
+  rejected: new Set(),  // 서버가 거부한 쓰기 (무한 재전송 방지)
+  writeErr: null, probed: false, probing: false,
+};
 let migChecked = false;
 
 const cloud = () => !!(FB.db && FB.key);
@@ -504,39 +548,56 @@ function ensureSyncKey(cfg) {
   return true;
 }
 
-async function connectFirebase(cfg) {
-  try {
-    if (!FB.app) {
-      const [appM, fsM] = await Promise.all([import(FB_URL('app')), import(FB_URL('firestore'))]);
-      FB.fns = { app: appM, fs: fsM };
-      FB.app = appM.initializeApp(cfg);
-      try {
-        FB.db = fsM.initializeFirestore(FB.app, { localCache: fsM.persistentLocalCache() });
-      } catch (e) {
-        FB.db = fsM.getFirestore(FB.app);
+async function connectFirebase(cfg, quiet) {
+  if (FB.connecting) return FB.connecting;
+  FB.connecting = (async () => {
+    try {
+      if (!FB.app) {
+        const [appM, fsM] = await Promise.all([import(FB_URL('app')), import(FB_URL('firestore'))]);
+        FB.fns = { app: appM, fs: fsM };
+        FB.app = appM.initializeApp(cfg);
+        try {
+          FB.db = fsM.initializeFirestore(FB.app, { localCache: fsM.persistentLocalCache() });
+        } catch (e) {
+          FB.db = fsM.getFirestore(FB.app);
+        }
       }
+      const fresh = ensureSyncKey(cfg);
+      FB.key = cfg.syncKey;
+      if (!FB.bailed) FB.lastErr = null;
+      migChecked = false;
+      subscribeCloud();
+      if (fresh) setTimeout(() => toast('🔑 동기화 키를 새로 만들었어요 · 설정에서 확인하세요'), 800);
+      if (sheetCtx && sheetCtx.type === 'settings') sheetSettings();
+      probe(cfg);
+      return true;
+    } catch (err) {
+      console.error('[firebase]', err);
+      FB.key = null;
+      FB.bailed = true;
+      FB.lastErr = FB.fns
+        ? 'Firebase 구성을 읽지 못했어요. 설정에서 구성을 다시 붙여넣어 주세요'
+        : '서버 연결 모듈을 불러오지 못했어요 (인터넷이 불안정했던 것 같아요). 상단의 동기화 표시를 누르면 새로고침해서 다시 연결해요';
+      if (!quiet) toast('⚠️ 서버에 연결하지 못했어요 · 이 기기에 저장해 두고 자동으로 다시 시도할게요');
+      scheduleRetry();
+      return false;
     }
-    const fresh = ensureSyncKey(cfg);
-    FB.key = cfg.syncKey;
-    FB.lastErr = null;
-    migChecked = false;
-    subscribeCloud();
-    if (fresh) setTimeout(() => toast('🔑 동기화 키를 새로 만들었어요 · 설정에서 확인하세요'), 800);
-    if (sheetCtx && sheetCtx.type === 'settings') sheetSettings();
-    restProbe(cfg).then(p => {
-      if (!p.ok) {
-        FB.lastErr = probeMsg(p);
-        toast('⚠️ ' + FB.lastErr.split('\n')[0]);
-        if (sheetCtx && sheetCtx.type === 'settings') sheetSettings();
-      }
-    });
-    return true;
-  } catch (err) {
-    console.error('[firebase]', err);
-    FB.key = null;
-    toast('Firebase 연결에 실패했어요 · 로컬 모드로 동작합니다');
-    return false;
-  }
+  })();
+  try { return await FB.connecting; }
+  finally { FB.connecting = null; updateSync(); }
+}
+
+// 설정 문제(DB 없음·규칙·키)만 알린다. 단순 네트워크 실패는 상단 표시로 충분하다.
+function probe(c) {
+  if (FB.probing || !c) return;
+  FB.probing = true;
+  restProbe(c).then(p => {
+    if (!p.ok && p.why !== 'net') {
+      FB.lastErr = probeMsg(p);
+      toast('⚠️ ' + FB.lastErr.split('\n')[0]);
+      if (sheetCtx && sheetCtx.type === 'settings') sheetSettings();
+    }
+  }).finally(() => { FB.probing = false; });
 }
 
 function fsErrMsg(e) {
@@ -554,12 +615,22 @@ function fsErrMsg(e) {
 async function restProbe(c) {
   const base = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(c.projectId)}/databases/(default)/documents/u/${encodeURIComponent(c.syncKey || 'main')}/_meta/ping`;
   try {
+    const t0 = Date.now();
     const r = await fetch(`${base}?key=${encodeURIComponent(c.apiKey)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fields: { t: { integerValue: String(Date.now()) } } }),
     });
-    if (r.ok) return { ok: true };
+    const t1 = Date.now();
+    if (r.ok) {
+      FB.probed = true;
+      try {
+        const j = await r.json();
+        const st = Date.parse(String(j.updateTime || '').replace(/(\.\d{3})\d+/, '$1'));
+        if (st && t1 - t0 < 4000) setClockOffset(st - (t0 + t1) / 2);
+      } catch (e) {}
+      return { ok: true };
+    }
     let msg = 'HTTP ' + r.status;
     try { const j = await r.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch (e) {}
     if (r.status === 404 && /does not exist/i.test(msg)) return { ok: false, why: 'nodb', msg };
@@ -586,43 +657,91 @@ function probeMsg(p) {
 function cloudBail(e) {
   console.error(e);
   if (!FB.key) return;
+  const first = !FB.bailed;
   FB.lastErr = fsErrMsg(e);
-  toast('⚠️ ' + FB.lastErr);
+  FB.bailed = true;
+  if (first) toast('⚠️ ' + FB.lastErr + ' · 이 기기에 저장해 두고 자동으로 다시 연결할게요');
   FB.key = null;
   unsubCloud();
   migChecked = false;
   loadLocal();
   render();
   if (sheetCtx && sheetCtx.type === 'settings') sheetSettings();
+  scheduleRetry();
+  updateSync();
+}
+
+// 끊기면 5초 → 10초 → 20초 … 최대 2분 간격으로 알아서 다시 붙는다
+let retryT = 0, retryN = 0;
+function scheduleRetry() {
+  clearTimeout(retryT);
+  const ms = Math.min(120000, 5000 * 2 ** retryN);
+  retryN++;
+  retryT = setTimeout(retryCloud, ms);
+}
+function retryCloud() {
+  clearTimeout(retryT);
+  const c = getCfg();
+  if (!c) return;
+  if (!FB.db) { connectFirebase(c, true); return; }
+  if (cloud()) return;
+  ensureSyncKey(c);
+  FB.key = c.syncKey;
+  subscribeCloud();
 }
 
 function unsubCloud() {
   FB.unsubs.forEach(u => { try { u(); } catch (e) {} });
   FB.unsubs = [];
   if (FB.todoUnsub) { try { FB.todoUnsub(); } catch (e) {} FB.todoUnsub = null; }
+  FB.meta = {};
 }
 
 function fbCol(name) {
   return FB.fns.fs.collection(FB.db, 'u', FB.key, name);
 }
 
+// 메타데이터 변화(서버 연결됨/끊김, 전송 완료)까지 받아야 상태 표시와 재전송을 정확히 할 수 있다
+const MD = { includeMetadataChanges: true };
+function onSnap(tag, sk, col, after) {
+  return s => {
+    FB.meta[tag] = { fromCache: s.metadata.fromCache, pending: s.metadata.hasPendingWrites };
+    const changed = applyServer(sk, col, s);
+    if (!s.metadata.fromCache) serverSeen();
+    if (changed) { render(); if (after) after(); }
+    updateSync();
+  };
+}
+
+// 서버와 실제로 통한 순간: 재연결 성공 처리 + 밀린 항목 전송
+function serverSeen() {
+  retryN = 0;
+  if (FB.bailed) {
+    FB.bailed = false;
+    FB.lastErr = null;
+    toast('✅ 다시 연결됐어요');
+    if (sheetCtx && sheetCtx.type === 'settings') sheetSettings();
+  }
+  if (!FB.probed) probe(getCfg());
+  flushOutbox();
+}
+
 function subscribeCloud() {
   unsubCloud();
+  clearTimeout(retryT);
+  FB.rejected.clear(); FB.writeErr = null;
   const { onSnapshot } = FB.fns.fs;
-  FB.unsubs.push(onSnapshot(fbCol('categories'), s => {
-    applyServer('cats', 'categories', s);
-    render();
-  }, cloudBail));
-  FB.unsubs.push(onSnapshot(fbCol('routines'), s => {
-    applyServer('routines', 'routines', s);
-    render();
+  FB.meta = { cats: { fromCache: true }, routines: { fromCache: true } };
+  FB.unsubs.push(onSnapshot(fbCol('categories'), MD, onSnap('cats', 'cats', 'categories'), cloudBail));
+  FB.unsubs.push(onSnapshot(fbCol('routines'), MD, onSnap('routines', 'routines', 'routines', () => {
     if (sheetCtx && sheetCtx.type === 'routines') sheetRoutines();
-  }, cloudBail));
+  }), cloudBail));
   subTodosRange();
   pullOldKeyOnce();
   // 새 키로 연결되면 검색용 캐시도 다시 받는다
   searchUI.fetched.future = 0; searchUI.fetched.all = 0;
   if (sheetCtx && sheetCtx.type === 'search') fetchForSearch();
+  updateSync();
 }
 
 function subTodosRange() {
@@ -631,26 +750,28 @@ function subTodosRange() {
   const { onSnapshot, query, where } = FB.fns.fs;
   const { gs, ge } = gridRange(state.month);
   const q = query(fbCol('todos'), where('date', '>=', fmt(gs)), where('date', '<=', fmt(ge)));
-  FB.todoUnsub = onSnapshot(q, s => {
-    applyServer('todos', 'todos', s);
-    render();
-  }, cloudBail);
+  if (!FB.meta.todos) FB.meta.todos = { fromCache: true };
+  FB.todoUnsub = onSnapshot(q, MD, onSnap('todos', 'todos', 'todos'), cloudBail);
 }
 
 // 서버 스냅샷을 로컬에 병합한다. 로컬이 항상 기준이며, 같은 항목은 최신 수정본이 이긴다.
 // 서버에 없거나 서버가 더 오래된 로컬 항목은 다시 올려서 양방향으로 수렴시킨다.
+// 화면을 다시 그려야 할 변화가 있었는지 돌려준다.
 function applyServer(sk, col, snap) {
   const arr = state[sk];
   const sv = new Map();
+  let changed = false;
   for (const d of snap.docs) {
     const sd = d.data();
     if (!sd || !sd.id) continue;
-    sv.set(sd.id, sd.updatedAt || sd.createdAt || 0);
+    const su = sd.updatedAt || sd.createdAt || 0;
+    sv.set(sd.id, su);
     const i = arr.findIndex(x => x.id === sd.id);
-    if (i < 0) arr.push(sd);
+    if (i < 0) { arr.push(sd); changed = true; }
     else {
       const lu = arr[i].updatedAt || arr[i].createdAt || 0;
-      if ((sd.updatedAt || sd.createdAt || 0) >= lu) arr[i] = sd;
+      if (su > lu) { arr[i] = sd; changed = true; }
+      else if (su === lu) arr[i] = sd;
     }
   }
   if (cloud() && !snap.metadata.fromCache && !snap.metadata.hasPendingWrites) {
@@ -658,11 +779,13 @@ function applyServer(sk, col, snap) {
     if (sk === 'todos') { const { gs, ge } = gridRange(state.month); lo = fmt(gs); hi = fmt(ge); }
     for (const x of arr) {
       if (lo && (x.date < lo || x.date > hi)) continue;
+      if (FB.rejected.has(col + '/' + x.id)) continue;
       const su = sv.get(x.id);
       if (su === undefined || (x.updatedAt || x.createdAt || 0) > su) pushDoc(col, x);
     }
   }
-  saveLocal();
+  if (changed) saveLocal();
+  return changed;
 }
 
 // 예전 버전(동기화 코드 시절) 경로에 남은 데이터를 한 번 이어받는다
@@ -690,11 +813,183 @@ const oops = e => {
   if (n - oopsT > 8000) { oopsT = n; toast('⚠️ ' + fsErrMsg(e)); }
 };
 
+// ---------- 동기화 보강 ----------
+const COL_SK = { categories: 'cats', todos: 'todos', routines: 'routines' };
+const pend = new Map();   // 서버 확인을 아직 못 받은 쓰기 (col/id → 토큰)
+let pendSeq = 0;
+
 function pushDoc(col, obj) {
-  if (cloud()) FB.fns.fs.setDoc(FB.fns.fs.doc(fbCol(col), obj.id), obj).catch(oops);
+  const k = col + '/' + obj.id;
+  if (!cloud()) {
+    // 설정은 돼 있는데 지금 끊겨 있으면, 잊지 않게 적어 둔다
+    if (getCfg()) outboxAdd(k, obj.updatedAt || 0);
+    return;
+  }
+  const tok = ++pendSeq;
+  pend.set(k, tok);
+  const done = () => { if (pend.get(k) === tok) pend.delete(k); };
+  FB.fns.fs.setDoc(FB.fns.fs.doc(fbCol(col), obj.id), obj)
+    .then(() => { done(); updateSync(); })
+    .catch(e => {
+      done();
+      FB.rejected.add(k);
+      FB.writeErr = fsErrMsg(e);
+      outboxAdd(k, obj.updatedAt || 0);
+      oops(e);
+      updateSync();
+    });
+  updateSync();
 }
 
-const stamp = () => Date.now();
+// 끊겨 있던 동안의 수정분을 서버 것과 비교해서, 이 기기 것이 더 최신일 때만 올린다
+let flushing = false;
+async function flushOutbox() {
+  if (flushing || !cloud()) return;
+  const keys = Object.keys(outbox).filter(k => !FB.rejected.has(k));
+  if (!keys.length) return;
+  flushing = true;
+  let merged = false;
+  try {
+    const { getDocFromServer, doc } = FB.fns.fs;
+    for (const k of keys) {
+      if (!cloud()) break;
+      const v = outbox[k];
+      if (pend.has(k)) { outboxDrop(k, v); continue; } // 이미 전송 중
+      const [col, id] = k.split('/');
+      const arr = state[COL_SK[col]];
+      const i = arr ? arr.findIndex(o => o.id === id) : -1;
+      if (i < 0) { outboxDrop(k, v); continue; }
+      const snap = await getDocFromServer(doc(fbCol(col), id));
+      const sd = snap.exists() ? snap.data() : null;
+      const su = sd ? (sd.updatedAt || sd.createdAt || 0) : -1;
+      const lu = arr[i].updatedAt || arr[i].createdAt || 0;
+      if (lu > su) pushDoc(col, arr[i]);
+      else if (sd && su > lu) { arr[i] = sd; merged = true; }
+      outboxDrop(k, v);
+    }
+  } catch (e) {
+    console.error('[outbox]', e); // 서버에 못 닿으면 목록을 그대로 두고 다음 연결 때 다시 시도
+  } finally {
+    flushing = false;
+    if (merged) { saveLocal(); render(); }
+    updateSync();
+  }
+}
+
+// 화면으로 돌아왔을 때·인터넷이 다시 연결됐을 때 기다리지 않고 바로 다시 붙는다
+let kickBusy = false, lastKick = 0, kickT = 0;
+async function kick(force) {
+  const c = getCfg();
+  if (!c || kickBusy) return;
+  // 너무 잦은 재연결은 막되, 상태가 나쁘면 잠시 뒤에 꼭 한 번 더 시도한다
+  const gap = syncState() === 'ok' ? 4000 : 1500;
+  const since = Date.now() - lastKick;
+  if (!force && since < gap) {
+    if (syncState() !== 'ok') { clearTimeout(kickT); kickT = setTimeout(() => kick(), gap - since + 50); }
+    return;
+  }
+  clearTimeout(kickT);
+  kickBusy = true; lastKick = Date.now();
+  try {
+    if (force) { FB.rejected.clear(); FB.writeErr = null; }
+    if (!FB.db) { await connectFirebase(c, true); return; }
+    if (!cloud()) { retryCloud(); return; }
+    const { disableNetwork, enableNetwork } = FB.fns.fs;
+    await disableNetwork(FB.db);
+    await enableNetwork(FB.db);
+    flushOutbox();
+  } catch (e) {
+    console.error('[kick]', e);
+  } finally {
+    kickBusy = false;
+    updateSync();
+  }
+}
+
+// 앱을 내리거나 화면이 꺼지기 직전, 아직 못 보낸 변경을 브라우저에 맡겨 보낸다.
+// (페이지가 얼어붙어도 keepalive 요청은 끝까지 전송된다. 실패해도 다음 연결 때 다시 보낸다)
+function toFs(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number') return Number.isSafeInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (typeof v === 'string') return { stringValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(toFs) } };
+  const fields = {};
+  for (const [k, x] of Object.entries(v)) if (x !== undefined) fields[k] = toFs(x);
+  return { mapValue: { fields } };
+}
+let lastBeacon = '', lastBeaconAt = 0;
+function beaconFlush() {
+  const keys = new Set([...pend.keys(), ...Object.keys(outbox)]);
+  if (!keys.size || navigator.onLine === false) return;
+  const c = getCfg();
+  if (!c || !c.projectId || !c.syncKey) return;
+  const root = `projects/${c.projectId}/databases/(default)/documents`;
+  const writes = [];
+  for (const k of keys) {
+    if (FB.rejected.has(k)) continue;
+    const [col, id] = k.split('/');
+    const x = (state[COL_SK[col]] || []).find(o => o.id === id);
+    if (x) writes.push({ update: { name: `${root}/u/${c.syncKey}/${col}/${id}`, fields: toFs(x).mapValue.fields } });
+  }
+  if (!writes.length) return;
+  const body = JSON.stringify({ writes });
+  if (body.length > 60000) return; // keepalive 한도(64KB) 초과 시엔 다음 연결 때 SDK가 보낸다
+  if (body === lastBeacon && Date.now() - lastBeaconAt < 3000) return;
+  lastBeacon = body; lastBeaconAt = Date.now();
+  try {
+    fetch(`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(c.projectId)}/databases/(default)/documents:commit?key=${encodeURIComponent(c.apiKey)}`, {
+      method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body,
+    }).catch(() => {});
+  } catch (e) {}
+}
+
+// ---------- 동기화 상태 표시 ----------
+const SYNC_TXT = { ok: '', pending: '보내는 중', wait: '연결 중', offline: '오프라인', error: '연결 끊김' };
+function syncTip(s) {
+  return {
+    ok: '동기화됨',
+    pending: '변경사항을 서버로 보내는 중',
+    wait: '서버에 연결하는 중',
+    offline: '인터넷 연결 없음 · 변경사항은 이 기기에 저장돼 있고, 연결되면 자동으로 보내요',
+    error: (FB.bailed ? FB.lastErr : FB.writeErr) || '서버와 연결이 끊겼어요',
+  }[s] || '';
+}
+function syncState() {
+  if (!getCfg()) return 'off';
+  if (navigator.onLine === false) return 'offline';
+  if (FB.bailed || FB.rejected.size) return 'error';
+  if (!cloud()) return 'wait';
+  const m = Object.values(FB.meta);
+  if (!m.length || m.some(x => x.fromCache)) return 'wait';
+  if (pend.size || Object.keys(outbox).length || m.some(x => x.pending)) return 'pending';
+  return 'ok';
+}
+let syncPrev = '', syncSince = 0, syncT = 0;
+function updateSync() {
+  const el = document.getElementById('sync-dot');
+  if (!el) return;
+  const s = syncState();
+  if (s !== syncPrev) { syncPrev = s; syncSince = Date.now(); }
+  // '보내는 중'·'연결 중'은 보통 1초 안에 끝나므로, 오래 걸릴 때만 글자를 붙인다
+  const quiet = (s === 'pending' || s === 'wait') ? 1500 : 0;
+  const age = Date.now() - syncSince;
+  const label = SYNC_TXT[s] && age >= quiet ? SYNC_TXT[s] : '';
+  el.classList.toggle('on', s !== 'off');
+  el.classList.toggle('sync-lbl', !!label);
+  el.dataset.s = s;
+  el.querySelector('span').textContent = label;
+  el.title = syncTip(s);
+  el.setAttribute('aria-label', '동기화 상태: ' + syncTip(s));
+  clearTimeout(syncT);
+  if (!label && SYNC_TXT[s] && quiet) syncT = setTimeout(updateSync, quiet - age + 30);
+}
+
+// 수정 시각: 서버 기준으로 보정 + 한 기기 안에서는 항상 증가
+let lastStamp = 0;
+const stamp = () => (lastStamp = Math.max(Date.now() + clockOffset, lastStamp + 1));
+// 수정본은 언제나 원래 버전보다 나중 시각을 갖게 한다 (다른 기기 시계가 앞서 있어도 내 수정이 무시되지 않게)
+const bump = (o, t) => Math.max(t || stamp(), (o.updatedAt || o.createdAt || 0) + 1);
 function upsert(arr, obj) { const i = arr.findIndex(x => x.id === obj.id); if (i >= 0) arr[i] = obj; else arr.push(obj); }
 function commitLocal() { saveLocal(); render(); }
 const liveCats = () => state.cats.filter(c => !c.deleted);
@@ -708,15 +1003,15 @@ const store = {
   },
   updateCategory(id, patch) {
     const c = state.cats.find(x => x.id === id); if (!c) return;
-    Object.assign(c, patch, { updatedAt: stamp() });
+    Object.assign(c, patch, { updatedAt: bump(c) });
     commitLocal(); pushDoc('categories', c);
   },
   deleteCategory(id) {
     const t = stamp();
     const c = state.cats.find(x => x.id === id);
-    if (c) { c.deleted = true; c.updatedAt = t; pushDoc('categories', c); }
-    for (const x of state.todos) if (x.categoryId === id && !x.deleted) { x.deleted = true; x.updatedAt = t; pushDoc('todos', x); }
-    for (const x of state.routines) if (x.categoryId === id && !x.deleted) { x.deleted = true; x.updatedAt = t; pushDoc('routines', x); }
+    if (c) { c.deleted = true; c.updatedAt = bump(c, t); pushDoc('categories', c); }
+    for (const x of state.todos) if (x.categoryId === id && !x.deleted) { x.deleted = true; x.updatedAt = bump(x, t); pushDoc('todos', x); }
+    for (const x of state.routines) if (x.categoryId === id && !x.deleted) { x.deleted = true; x.updatedAt = bump(x, t); pushDoc('routines', x); }
     commitLocal();
   },
   addTodo({ categoryId, text, date = state.selected, routineId = null, memo = '' }) {
@@ -739,12 +1034,12 @@ const store = {
   },
   updateTodo(id, patch) {
     const t = state.todos.find(x => x.id === id); if (!t) return;
-    Object.assign(t, patch, { updatedAt: stamp() });
+    Object.assign(t, patch, { updatedAt: bump(t) });
     commitLocal(); pushDoc('todos', t);
   },
   deleteTodo(id) {
     const t = state.todos.find(x => x.id === id); if (!t) return;
-    t.deleted = true; t.updatedAt = stamp();
+    t.deleted = true; t.updatedAt = bump(t);
     commitLocal(); pushDoc('todos', t);
   },
   // 드래그 결과 순서를 한 번에 반영한다. 새로 만든 할 일(order=Date.now())은 계속 맨 뒤에 붙는다.
@@ -754,7 +1049,7 @@ const store = {
       const t = state.todos.find(x => x.id === id);
       if (!t) return;
       const o = i + 1;
-      if (t.order !== o) { t.order = o; t.updatedAt = stamp(); changed.push(t); }
+      if (t.order !== o) { t.order = o; t.updatedAt = bump(t); changed.push(t); }
     });
     if (!changed.length) return 0;
     commitLocal();
@@ -768,12 +1063,12 @@ const store = {
   },
   updateRoutine(id, patch) {
     const r = state.routines.find(x => x.id === id); if (!r) return;
-    Object.assign(r, patch, { updatedAt: stamp() });
+    Object.assign(r, patch, { updatedAt: bump(r) });
     commitLocal(); pushDoc('routines', r);
   },
   deleteRoutine(id) {
     const r = state.routines.find(x => x.id === id); if (!r) return;
-    r.deleted = true; r.updatedAt = stamp();
+    r.deleted = true; r.updatedAt = bump(r);
     commitLocal(); pushDoc('routines', r);
   },
 };
@@ -1435,14 +1730,25 @@ service cloud.firestore {
 
 function sheetSettings() {
   const cfg = storage.getItem(K_CFG);
-  const connected = cloud();
+  const live = cloud();
+  // 잠깐 끊겨서 자동 재연결 중일 때도 '연결된 기기'로 보여준다 (구성을 다시 붙여넣을 필요 없음)
+  // (단, 구성 자체가 잘못돼 앱을 못 만든 경우엔 다시 붙여넣을 수 있게 입력칸을 보여준다)
+  const connected = live || !!(cfg && (FB.connecting || (FB.bailed && (FB.app || !FB.fns))));
   let syncKey = '';
   try { syncKey = (JSON.parse(cfg || 'null') || {}).syncKey || ''; } catch (e) {}
-  const statusHtml = connected
+  let statusHtml = live
     ? (FB.lastErr ? '⚠️ ' + esc(FB.lastErr) : '☁️ 클라우드 동기화 중 · 같은 구성 + 같은 동기화 키를 넣은 기기끼리 자동 동기화')
-    : FB.lastErr
-      ? '⚠️ ' + esc(FB.lastErr)
-      : '📱 로컬 모드 · 이 브라우저에만 저장돼요';
+    : connected
+      ? (FB.bailed
+        ? '⚠️ ' + esc(FB.lastErr || '서버와 연결이 끊겼어요') + '\n변경사항은 이 기기에 저장해 두고, 자동으로 다시 연결하고 있어요'
+        : '⏳ 서버에 연결하는 중…')
+      : FB.lastErr
+        ? '⚠️ ' + esc(FB.lastErr)
+        : '📱 로컬 모드 · 이 브라우저에만 저장돼요';
+  if (connected && clockOffset) {
+    const sec = (Math.abs(clockOffset) / 1000).toFixed(1);
+    statusHtml += `\n🕒 이 기기 시계가 서버보다 ${sec}초 ${clockOffset > 0 ? '느려서' : '빨라서'} 자동으로 보정하고 있어요`;
+  }
 
   const configSection = `
     <label class="lbl" for="cfg-inp">Firebase 구성 붙여넣기</label>
@@ -2009,6 +2315,49 @@ if (storageIsMemory) {
     if (cfg && cfg.apiKey) connectFirebase(cfg);
   } catch (e) { console.error(e); }
 })();
+
+// ---------- 동기화 생명주기 ----------
+// 폰에서 앱을 내렸다 올리거나, 화면을 껐다 켜거나, 와이파이↔데이터가 바뀌면
+// 기존 연결이 죽어 있는 경우가 많다. 그때마다 기다리지 않고 바로 다시 연결한다.
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); beaconFlush(); return; }
+  updateSync();
+  if (Date.now() - hiddenAt > 5000 || syncState() !== 'ok') kick();
+});
+document.addEventListener('freeze', beaconFlush);
+document.addEventListener('resume', () => kick(true));
+window.addEventListener('pagehide', beaconFlush);
+window.addEventListener('pageshow', e => { if (e.persisted) kick(true); });
+window.addEventListener('online', () => { updateSync(); kick(true); });
+window.addEventListener('offline', updateSync);
+
+// 컴퓨터가 절전에서 깨어난 경우: 타이머 간격이 비정상적으로 벌어진 걸로 알아챈다
+let lastTick = Date.now();
+setInterval(() => {
+  const n = Date.now();
+  if (n - lastTick > 45000 && document.visibilityState === 'visible') kick();
+  lastTick = n;
+}, 15000);
+
+// 상단 동기화 표시를 누르면 지금 바로 다시 맞춘다
+$('#sync-dot').addEventListener('click', () => {
+  const s = syncState();
+  if (!FB.app && !FB.connecting && getCfg()) {
+    toast('새로고침해서 다시 연결할게요');
+    setTimeout(() => location.reload(), 700);
+    return;
+  }
+  toast({
+    ok: '☁️ 동기화돼 있어요 · 서버와 한 번 더 맞춰볼게요',
+    pending: '⏳ 변경사항을 보내는 중이에요 · 연결을 새로 해볼게요',
+    wait: '서버에 연결하는 중이에요 · 바로 다시 시도할게요',
+    offline: '📴 인터넷이 끊겨 있어요 · 변경사항은 이 기기에 저장돼 있고, 연결되면 자동으로 보내요',
+    error: '⚠️ ' + syncTip('error') + ' · 지금 다시 연결해 볼게요',
+  }[s] || '');
+  if (s !== 'offline') kick(true);
+});
+updateSync();
 </script>
 </body>
 </html>
