@@ -13,6 +13,8 @@
   --bg:#f7f7f8; --card:#ffffff; --line:#ececee; --line2:#e3e3e6;
   --txt:#191a1c; --sub:#9b9ea4; --faint:#c7cad0;
   --danger:#e5484d; --r:20px;
+  /* 건강: 생리 표시 색 (실제는 채움, 예정은 점선) */
+  --pd:#d6336c; --pd-line:#f06595; --pd-fill:#fcc2d7; --pd-wash:#fff0f6;
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
 html,body{margin:0; padding:0;}
@@ -95,6 +97,44 @@ input,select,textarea{font-family:inherit; color:inherit;}
 .cal-cell.done-all .num{box-shadow:inset 0 0 0 1.5px var(--txt);}
 .cal-cell.sel.done-all .num{box-shadow:none;}
 
+/* ---------- 건강: 달력 표시 ---------- */
+.cal-cell{position:relative;}
+.cal-cell .num{position:relative; z-index:1;}
+/* 생리 기간 띠: 이어진 날끼리 붙어 보이게 칸 사이 틈(2px)까지 덮는다 */
+.pband{position:absolute; top:5px; height:27px; left:-1px; right:-1px; pointer-events:none;}
+.pband.s{left:calc(50% - 16px); border-top-left-radius:14px; border-bottom-left-radius:14px;}
+.pband.e{right:calc(50% - 16px); border-top-right-radius:14px; border-bottom-right-radius:14px;}
+.pband.act{background:var(--pd-fill);}
+.pband.exp{background:var(--pd-wash); border:1.5px dashed var(--pd-line); border-left:0; border-right:0;}
+.pband.exp.s{border-left:1.5px dashed var(--pd-line);}
+.pband.exp.e{border-right:1.5px dashed var(--pd-line);}
+/* 띠 위의 오늘: 회색 대신 띠보다 살짝 진한 분홍. 선택된 날이면 검은 동그라미가 그대로 보이게 제외한다 */
+.cal-cell.today.pd:not(.sel) .num{background:rgba(214,51,108,.16);}
+/* 주기 체크 항목: 숫자 오른쪽 위에 작은 아이콘 */
+.hm{
+  position:absolute; z-index:2; top:1px; left:calc(50% + 12px);
+  display:flex; flex-direction:column; align-items:center; gap:1px;
+  font-size:10.5px; line-height:1; pointer-events:none;
+}
+.hm b{font-size:8.5px; font-weight:800; color:var(--sub); line-height:1.2;}
+
+.cal-legend{
+  display:flex; flex-wrap:wrap; align-items:center; gap:7px 14px;
+  margin-top:12px; padding:12px 4px 0; border-top:1px solid #f2f2f4;
+  font-size:12px; font-weight:700; color:#4a4c50; cursor:pointer;
+}
+.cal-legend:empty{display:none;}
+.cal-legend:hover .lg{color:var(--txt);}
+.lg{display:inline-flex; align-items:center; gap:6px; white-space:nowrap;}
+.lg em{font-style:normal; font-weight:600; color:var(--sub);}
+.lg-sw{flex:none; width:18px; height:10px; border-radius:99px;}
+.lg-sw.act{background:var(--pd-fill);}
+.lg-sw.exp{background:var(--pd-wash); border:1.5px dashed var(--pd-line);}
+.lg-alert{
+  flex-basis:100%; background:#fff5f5; color:#e03131; border-radius:10px;
+  padding:8px 11px; font-size:12.5px; font-weight:700; line-height:1.45;
+}
+
 /* ---------- list panel ---------- */
 .panel.list{min-height:440px;}
 .list-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
@@ -102,6 +142,45 @@ input,select,textarea{font-family:inherit; color:inherit;}
 .list-progress{font-size:12.5px; font-weight:700; color:var(--sub);}
 .pbar{height:4px; background:#f0f0f2; border-radius:99px; margin:12px 0 18px; overflow:hidden;}
 .pbar i{display:block; height:100%; width:0; background:var(--txt); border-radius:99px; transition:width .25s ease;}
+
+/* ---------- 건강: 선택한 날짜에 체크 ---------- */
+.hrow{
+  display:flex; flex-wrap:wrap; align-items:center; gap:6px;
+  margin:0 0 16px; padding-bottom:14px; border-bottom:1px solid #f2f2f4;
+}
+.no-pbar .hrow{margin-top:14px;}
+.h-lbl{font-size:12.5px; font-weight:800; color:var(--sub); padding:6px 4px 6px 2px; margin-right:2px; border-radius:8px;}
+.h-lbl:hover{color:var(--txt);}
+.hchip{
+  display:inline-flex; align-items:center; gap:5px; height:31px; padding:0 12px;
+  border-radius:99px; border:1.5px solid var(--line2); background:#fff;
+  font-size:12.5px; font-weight:700; color:#5a5c60; white-space:nowrap;
+  transition:background .12s, border-color .12s, color .12s;
+}
+.hchip:hover{border-color:#b9bcc2;}
+.hchip:active{transform:scale(.97);}
+.hchip .em{font-size:13px; line-height:1;}
+.hchip .dn{font-weight:600; opacity:.85;}
+.hchip.on{background:var(--txt); border-color:var(--txt); color:#fff;}
+.hchip.p-act.on{background:var(--pd-line); border-color:var(--pd-line); color:#fff;}
+.hchip.p-exp.on{background:var(--pd-wash); border-color:var(--pd-line); border-style:dashed; color:var(--pd);}
+.hchip.add{border-style:dashed; color:var(--sub);}
+.hchip.add.sq{width:31px; padding:0; justify-content:center; font-size:16px; font-weight:500; color:var(--faint);}
+.hchip.add:hover{color:var(--txt); border-color:#b9bcc2;}
+
+/* 건강 시트 */
+.h-form{display:flex; gap:8px; align-items:center;}
+.h-form .inp[type=date]{flex:1; min-width:0;}
+.h-num{display:flex; align-items:center; gap:6px; flex:none; font-size:14px; font-weight:700; color:#3a3c40;}
+.h-num .inp{width:66px; text-align:center; padding:12px 6px;}
+.t-emo{flex:none; width:24px; font-size:18px; line-height:1.3; text-align:center;}
+.r-freq.warn{color:var(--danger); font-weight:700;}
+.h-limit{display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:14px; font-weight:600; color:#3a3c40; padding:0 4px;}
+.h-limit .inp{width:66px; text-align:center; padding:10px 6px;}
+.emo-grid{display:grid; grid-template-columns:repeat(6,1fr); gap:7px;}
+.emo{height:42px; border-radius:12px; border:1.5px solid var(--line2); font-size:19px; line-height:1;}
+.emo:hover{border-color:#b9bcc2;}
+.emo.on{border-color:var(--txt); background:#f6f6f7; box-shadow:inset 0 0 0 1px var(--txt);}
 
 .cat-block{margin-bottom:18px;}
 .cat-head{display:flex; align-items:center; gap:8px; margin-bottom:2px;}
@@ -387,6 +466,7 @@ mark{background:#fff3bf; color:inherit; border-radius:3px; padding:0 1px;}
       <span class="sun">일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="sat">토</span>
     </div>
     <div class="cal-grid" id="cal-grid"></div>
+    <div class="cal-legend" id="cal-legend" role="button" tabindex="0" aria-label="건강 기록 열기"></div>
   </section>
 
   <section class="panel list" id="list">
@@ -395,6 +475,7 @@ mark{background:#fff3bf; color:inherit; border-radius:3px; padding:0 1px;}
       <div class="list-progress" id="list-progress"></div>
     </div>
     <div class="pbar" id="pbar"><i id="pbar-fill"></i></div>
+    <div class="hrow" id="health-row"></div>
     <div class="gbar" id="ghost-bar"></div>
     <div id="cat-list"></div>
     <button class="add-cat" id="add-cat-btn">+ 카테고리 추가</button>
@@ -489,6 +570,7 @@ function toast(msg) {
 const now = new Date();
 const state = {
   cats: [], todos: [], routines: [],
+  htrackers: [], hlogs: [],   // 건강: 주기 체크 항목, 날짜별 기록
   month: new Date(now.getFullYear(), now.getMonth(), 1),
   selected: todayStr(),
   addingCat: null,
@@ -503,18 +585,22 @@ const dnd = { active: false, dirty: false };
 function loadLocalRaw() {
   try {
     const d = JSON.parse(storage.getItem(K_DATA) || 'null');
-    if (d && Array.isArray(d.cats)) return { cats: d.cats, todos: d.todos || [], routines: d.routines || [] };
+    if (d && Array.isArray(d.cats)) return { cats: d.cats, todos: d.todos || [], routines: d.routines || [], htrackers: d.htrackers || [], hlogs: d.hlogs || [] };
   } catch (e) {}
-  return { cats: [], todos: [], routines: [] };
+  return { cats: [], todos: [], routines: [], htrackers: [], hlogs: [] };
 }
 function loadLocal() {
   const d = loadLocalRaw();
   state.cats = d.cats; state.todos = d.todos; state.routines = d.routines;
+  state.htrackers = d.htrackers; state.hlogs = d.hlogs;
 }
 function saveLocal() {
   const cut = Date.now() - 60 * 864e5;
   const keep = a => a.filter(x => !x.deleted || (x.updatedAt || 0) > cut);
-  storage.setItem(K_DATA, JSON.stringify({ cats: keep(state.cats), todos: keep(state.todos), routines: keep(state.routines) }));
+  storage.setItem(K_DATA, JSON.stringify({
+    cats: keep(state.cats), todos: keep(state.todos), routines: keep(state.routines),
+    htrackers: keep(state.htrackers), hlogs: keep(state.hlogs),
+  }));
 }
 
 // ---------- Firebase ----------
@@ -731,11 +817,15 @@ function subscribeCloud() {
   clearTimeout(retryT);
   FB.rejected.clear(); FB.writeErr = null;
   const { onSnapshot } = FB.fns.fs;
-  FB.meta = { cats: { fromCache: true }, routines: { fromCache: true } };
+  FB.meta = { cats: { fromCache: true }, routines: { fromCache: true }, htrackers: { fromCache: true }, hlogs: { fromCache: true } };
   FB.unsubs.push(onSnapshot(fbCol('categories'), MD, onSnap('cats', 'cats', 'categories'), cloudBail));
   FB.unsubs.push(onSnapshot(fbCol('routines'), MD, onSnap('routines', 'routines', 'routines', () => {
     if (sheetCtx && sheetCtx.type === 'routines') sheetRoutines();
   }), cloudBail));
+  // 건강 기록은 양이 적고 주기 계산에 지난 달 기록도 필요해서 전체를 구독한다
+  const healthAfter = () => { if (sheetCtx && sheetCtx.type === 'health') sheetHealth(); };
+  FB.unsubs.push(onSnapshot(fbCol('healthTrackers'), MD, onSnap('htrackers', 'htrackers', 'healthTrackers', healthAfter), cloudBail));
+  FB.unsubs.push(onSnapshot(fbCol('healthLogs'), MD, onSnap('hlogs', 'hlogs', 'healthLogs', healthAfter), cloudBail));
   subTodosRange();
   pullOldKeyOnce();
   // 새 키로 연결되면 검색용 캐시도 다시 받는다
@@ -814,7 +904,7 @@ const oops = e => {
 };
 
 // ---------- 동기화 보강 ----------
-const COL_SK = { categories: 'cats', todos: 'todos', routines: 'routines' };
+const COL_SK = { categories: 'cats', todos: 'todos', routines: 'routines', healthTrackers: 'htrackers', healthLogs: 'hlogs' };
 const pend = new Map();   // 서버 확인을 아직 못 받은 쓰기 (col/id → 토큰)
 let pendSeq = 0;
 
@@ -1071,7 +1161,163 @@ const store = {
     r.deleted = true; r.updatedAt = bump(r);
     commitLocal(); pushDoc('routines', r);
   },
+
+  // --- 건강 ---
+  // 기록 id는 '날짜_종류'로 고정한다. 여러 기기에서 같은 날을 눌러도 한 문서로 모이고, 끄면 deleted로 표시.
+  // changes: [{ date, kind, on }]  (kind: 'period' | 'pexp' | 주기 체크 항목 id)
+  setHealth(changes) {
+    const t = stamp();
+    const touched = [];
+    for (const { date, kind, on } of changes) {
+      const id = `${date}_${kind}`;
+      const x = state.hlogs.find(l => l.id === id);
+      if (x) {
+        if (!x.deleted === on) continue;
+        x.deleted = !on; x.updatedAt = bump(x, t);
+        touched.push(x);
+      } else if (on) {
+        const l = { id, date, kind, createdAt: Date.now(), updatedAt: t, deleted: false };
+        state.hlogs.push(l);
+        touched.push(l);
+      }
+    }
+    if (!touched.length) return 0;
+    commitLocal();
+    for (const l of touched) pushDoc('healthLogs', l);
+    return touched.length;
+  },
+  addTracker({ name, emoji, limit }) {
+    const x = { id: uid(), name, emoji, limit: limit || null, order: Date.now(), createdAt: Date.now(), updatedAt: stamp(), deleted: false };
+    upsert(state.htrackers, x); commitLocal(); pushDoc('healthTrackers', x);
+    return x;
+  },
+  updateTracker(id, patch) {
+    const x = state.htrackers.find(o => o.id === id); if (!x) return;
+    Object.assign(x, patch, { updatedAt: bump(x) });
+    commitLocal(); pushDoc('healthTrackers', x);
+  },
+  deleteTracker(id) {
+    const x = state.htrackers.find(o => o.id === id); if (!x) return;
+    x.deleted = true; x.updatedAt = bump(x);
+    commitLocal(); pushDoc('healthTrackers', x);
+  },
 };
+
+// ---------- 건강 계산 ----------
+const HK_ACT = 'period', HK_EXP = 'pexp';
+const SAME_PERIOD = 3;   // 실제 생리 기록 사이가 이 날수 이하로 떨어져 있으면 같은 기간으로 본다 (하루 이틀 깜빡해도 이어지게)
+const dayDiff = (a, b) => Math.round((parseDate(b) - parseDate(a)) / 864e5);
+const liveTrackers = () => state.htrackers.filter(t => !t.deleted).sort((a, b) => (a.order || 0) - (b.order || 0));
+
+function logDates(kind) {
+  const s = new Set();
+  for (const l of state.hlogs) if (!l.deleted && l.kind === kind) s.add(l.date);
+  return s;
+}
+const hasLog = (date, kind) => state.hlogs.some(l => !l.deleted && l.date === date && l.kind === kind);
+
+// 날짜 → { act, exp, trk:[항목] } (항목은 정해 둔 순서대로)
+function healthIndex() {
+  const trk = liveTrackers();
+  const pos = new Map(trk.map((t, i) => [t.id, i]));
+  const m = new Map();
+  for (const l of state.hlogs) {
+    if (l.deleted) continue;
+    const isP = l.kind === HK_ACT || l.kind === HK_EXP;
+    if (!isP && !pos.has(l.kind)) continue;
+    let e = m.get(l.date);
+    if (!e) m.set(l.date, e = { act: false, exp: false, trk: [] });
+    if (l.kind === HK_ACT) e.act = true;
+    else if (l.kind === HK_EXP) e.exp = true;
+    else e.trk.push(trk[pos.get(l.kind)]);
+  }
+  for (const e of m.values()) if (e.trk.length > 1) e.trk.sort((a, b) => pos.get(a.id) - pos.get(b.id));
+  return m;
+}
+
+// 딱 붙어 있는 날짜끼리 묶는다 (달력 띠 모양 그대로)
+function contiguousRuns(dates) {
+  const runs = [];
+  for (const d of [...dates].sort()) {
+    const last = runs[runs.length - 1];
+    if (last && dayDiff(last.end, d) === 1) last.end = d;
+    else runs.push({ start: d, end: d });
+  }
+  return runs;
+}
+
+// 실제 생리 기간 (깜빡한 하루 이틀은 이어서 본다)
+function periodRuns() {
+  const runs = [];
+  for (const d of [...logDates(HK_ACT)].sort()) {
+    const last = runs[runs.length - 1];
+    if (last && dayDiff(last.end, d) <= SAME_PERIOD) last.end = d;
+    else runs.push({ start: d, end: d });
+  }
+  return runs;
+}
+
+function periodDayOf(date) {
+  const r = periodRuns().find(x => x.start <= date && date <= x.end);
+  return r ? dayDiff(r.start, date) + 1 : 0;
+}
+
+function periodStats() {
+  const today = todayStr();
+  const runs = periodRuns().filter(r => r.start <= today);
+  const cycles = [];
+  for (let i = 1; i < runs.length; i++) {
+    const c = dayDiff(runs[i - 1].start, runs[i].start);
+    if (c >= 15 && c <= 60) cycles.push(c); // 잘못 찍은 기록은 평균에서 뺀다
+  }
+  const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+  const recentC = cycles.slice(-3);
+  const avgCycle = recentC.length ? Math.round(avg(recentC)) : null;
+  // 지금 진행 중인 기간은 아직 안 끝났으니 길이 평균에서 뺀다
+  const done = runs.filter(r => r.end < addDaysStr(today, -1));
+  const lens = done.slice(-3).map(r => dayDiff(r.start, r.end) + 1);
+  const avgLen = lens.length ? Math.round(avg(lens)) : null;
+  const last = runs[runs.length - 1] || null;
+  let next = null, late = 0;
+  if (last) {
+    const cyc = avgCycle || 28;
+    next = addDaysStr(last.start, cyc);
+    while (next < addDaysStr(today, -10)) next = addDaysStr(next, cyc); // 한동안 기록을 안 했으면 앞으로 당겨 온다
+    if (next < today && last.end < next) late = dayDiff(next, today);
+  }
+  return { last, avgCycle, avgLen, next, late };
+}
+
+function trackerStats(id) {
+  const today = todayStr();
+  const dates = [...logDates(id)].filter(d => d <= today).sort();
+  const from30 = addDaysStr(today, -29), from90 = addDaysStr(today, -89);
+  const n30 = dates.filter(d => d >= from30).length;
+  const last = dates[dates.length - 1] || null;
+  const r90 = dates.filter(d => d >= from90);
+  const gap = r90.length >= 2 ? Math.round(dayDiff(r90[0], r90[r90.length - 1]) / (r90.length - 1)) : null;
+  return { n30, last, gap };
+}
+
+// 최근 30일 기준을 넘긴 항목 (보고 있는 달과 상관없이 오늘 기준)
+function healthAlerts() {
+  return liveTrackers()
+    .filter(t => t.limit > 0)
+    .map(t => ({ t, n: trackerStats(t.id).n30 }))
+    .filter(x => x.n >= x.t.limit);
+}
+
+const mdLabel = ds => {
+  const d = parseDate(ds);
+  const yr = d.getFullYear() !== new Date().getFullYear() ? `${d.getFullYear()}년 ` : '';
+  return `${yr}${d.getMonth() + 1}월 ${d.getDate()}일`;
+};
+function rangeLabel(a, b) {
+  if (a === b) return mdLabel(a);
+  const da = parseDate(a), db = parseDate(b);
+  const sameM = da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth();
+  return `${mdLabel(a)} – ${sameM ? db.getDate() + '일' : mdLabel(b)}`;
+}
 
 // ---------- routine logic ----------
 function routineMatches(r, dateStr) {
@@ -1118,11 +1364,36 @@ function renderCalendar() {
     if (!e.colors.includes(c)) e.colors.push(c);
   }
   const tstr = todayStr();
+  const hx = healthIndex();
+  const isAct = x => !!(x && x.act);
+  const isExp = x => !!(x && x.exp && !x.act);   // 실제로 기록한 날은 예정 대신 실제로 보인다
   let html = '';
   for (let i = 0; i < 42; i++) {
     const d = addDays(gs, i);
     const ds = fmt(d);
     const e = map[ds];
+
+    // 건강 표시
+    const h = hx.get(ds);
+    let band = '', marks = '';
+    const labels = [];
+    if (h) {
+      const prev = hx.get(fmt(addDays(d, -1))), next = hx.get(fmt(addDays(d, 1)));
+      const wd = d.getDay();
+      const kind = isAct(h) ? 'act' : isExp(h) ? 'exp' : '';
+      if (kind) {
+        const same = kind === 'act' ? isAct : isExp;
+        const s = !same(prev) || wd === 0, en = !same(next) || wd === 6;
+        band = `<i class="pband ${kind}${s ? ' s' : ''}${en ? ' e' : ''}"></i>`;
+        labels.push(kind === 'act' ? '생리' : '생리 예정');
+      }
+      if (h.trk.length) {
+        const shown = h.trk.length > 2 ? h.trk.slice(0, 1) : h.trk;
+        marks = `<span class="hm">${shown.map(t => `<span>${esc(t.emoji)}</span>`).join('')}${h.trk.length > 2 ? `<b>+${h.trk.length - 1}</b>` : ''}</span>`;
+        for (const t of h.trk) labels.push(t.name);
+      }
+    }
+
     const cls = ['cal-cell',
       d.getMonth() !== m && 'out',
       ds === tstr && 'today',
@@ -1130,11 +1401,48 @@ function renderCalendar() {
       d.getDay() === 0 && 'sun',
       d.getDay() === 6 && 'sat',
       (e && e.total > 0 && e.done === e.total) && 'done-all',
+      band && 'pd',
     ].filter(Boolean).join(' ');
     const dots = e ? e.colors.slice(0, 4).map(c => `<i class="dot" style="background:${c}"></i>`).join('') : '';
-    html += `<button class="${cls}" data-date="${ds}"><span class="num">${d.getDate()}</span><span class="dots">${dots}</span></button>`;
+    const tip = labels.length
+      ? ` title="${esc(labels.join(' · '))}" aria-label="${d.getMonth() + 1}월 ${d.getDate()}일, ${esc(labels.join(', '))}"`
+      : '';
+    html += `<button class="${cls}" data-date="${ds}"${tip}>${band}<span class="num">${d.getDate()}</span><span class="dots">${dots}</span>${marks}</button>`;
   }
   $('#cal-grid').innerHTML = html;
+  renderLegend();
+}
+
+// 달력 아래: 이 달에 무엇이 표시됐는지 + 기준을 넘긴 항목 알림
+function renderLegend() {
+  const el = $('#cal-legend');
+  const y = state.month.getFullYear(), m = state.month.getMonth();
+  const ms = fmt(new Date(y, m, 1)), me = fmt(new Date(y, m + 1, 0));
+  const inMonth = r => r.end >= ms && r.start <= me;
+  const runTxt = r => {
+    const a = parseDate(r.start), b = parseDate(r.end);
+    const both = a.getMonth() === m && b.getMonth() === m && a.getFullYear() === y && b.getFullYear() === y;
+    if (r.start === r.end) return both ? `${a.getDate()}일` : `${a.getMonth() + 1}/${a.getDate()}`;
+    return both ? `${a.getDate()}–${b.getDate()}일` : `${a.getMonth() + 1}/${a.getDate()}–${b.getMonth() + 1}/${b.getDate()}`;
+  };
+
+  const act = logDates(HK_ACT);
+  const exp = new Set([...logDates(HK_EXP)].filter(d => !act.has(d)));
+  const actRuns = contiguousRuns(act).filter(inMonth);
+  const expRuns = contiguousRuns(exp).filter(inMonth);
+
+  const items = [];
+  if (actRuns.length) items.push(`<span class="lg"><i class="lg-sw act"></i>생리 <em>${actRuns.map(runTxt).join(', ')}</em></span>`);
+  if (expRuns.length) items.push(`<span class="lg"><i class="lg-sw exp"></i>예정 <em>${expRuns.map(runTxt).join(', ')}</em></span>`);
+  for (const t of liveTrackers()) {
+    let n = 0;
+    for (const d of logDates(t.id)) if (d >= ms && d <= me) n++;
+    if (n) items.push(`<span class="lg">${esc(t.emoji)} ${esc(t.name)} <em>${n}번</em></span>`);
+  }
+  for (const { t, n } of healthAlerts()) {
+    items.push(`<span class="lg-alert">${esc(t.emoji)} ${esc(t.name)}: 최근 30일 동안 ${n}번이에요 (기준 ${t.limit}번)</span>`);
+  }
+  el.innerHTML = items.join('');
 }
 
 // ---------- render: list ----------
@@ -1194,6 +1502,7 @@ function renderList() {
   const doneN = todos.filter(t => t.done).length;
   $('#list-progress').textContent = todos.length ? `${doneN} / ${todos.length}` : '';
   $('#pbar').style.display = todos.length ? '' : 'none';
+  $('#list').classList.toggle('no-pbar', !todos.length);
   $('#pbar-fill').style.width = todos.length ? Math.round(doneN / todos.length * 100) + '%' : '0';
 
   const cats = liveCats().sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -1250,10 +1559,61 @@ function renderList() {
   }
 }
 
+// 선택한 날짜의 건강 체크 버튼 (할 일과 따로, 진행률에도 안 들어간다)
+function renderHealthRow() {
+  const ds = state.selected;
+  const act = hasLog(ds, HK_ACT), exp = hasLog(ds, HK_EXP);
+  const dayN = act ? periodDayOf(ds) : 0;
+  const trk = liveTrackers();
+  const chips = trk.map(t => {
+    const on = hasLog(ds, t.id);
+    return `<button class="hchip${on ? ' on' : ''}" data-h="${t.id}" aria-pressed="${on}"><span class="em">${esc(t.emoji)}</span>${esc(t.name)}</button>`;
+  }).join('');
+  $('#health-row').innerHTML = `
+    <button class="h-lbl" data-hopen title="건강 기록 관리">건강</button>
+    <button class="hchip p-act${act ? ' on' : ''}" data-h="${HK_ACT}" aria-pressed="${act}">생리${dayN ? ` <span class="dn">${dayN}일째</span>` : ''}</button>
+    <button class="hchip p-exp${exp ? ' on' : ''}" data-h="${HK_EXP}" aria-pressed="${exp}">생리 예정</button>
+    ${chips}
+    ${trk.length
+      ? '<button class="hchip add sq" data-hnew title="주기 체크 항목 추가" aria-label="주기 체크 항목 추가">+</button>'
+      : '<button class="hchip add" data-hnew>+ 주기 체크 항목</button>'}`;
+}
+
+function toggleHealth(ds, kind) {
+  const on = !hasLog(ds, kind);
+  store.setHealth([{ date: ds, kind, on }]);
+  if (on && kind === HK_ACT) offerMoveExpected(ds);
+}
+
+// 실제 생리가 새로 시작된 날을 찍었는데 근처 예정일과 어긋나면, 예정을 옮길지 묻는다
+function offerMoveExpected(x) {
+  const act = logDates(HK_ACT);
+  for (let k = -SAME_PERIOD; k <= SAME_PERIOD; k++) {
+    if (k && act.has(addDaysStr(x, k))) return; // 이미 진행 중인 기간의 하루
+  }
+  const near = contiguousRuns(logDates(HK_EXP))
+    .filter(r => Math.abs(dayDiff(x, r.start)) <= 10)
+    .filter(r => { for (let d = r.start; d <= r.end; d = addDaysStr(d, 1)) if (d !== x && act.has(d)) return false; return true; })
+    .sort((a, b) => Math.abs(dayDiff(x, a.start)) - Math.abs(dayDiff(x, b.start)));
+  const r = near[0];
+  if (!r || r.start === x) return;
+  const len = dayDiff(r.start, r.end) + 1;
+  const to = addDaysStr(x, len - 1);
+  const early = x < r.start;
+  openSheet(`
+    <div class="sh-title">예정${early ? '보다 일찍' : '보다 늦게'} 시작했어요</div>
+    <p class="hint">${rangeLabel(r.start, r.end)}로 예정해 둔 생리가 ${mdLabel(x)}에 시작됐어요. 예정 표시는 어떻게 할까요?</p>
+    ${len > 1 ? `<button class="opt" data-o="pm-move">📅&nbsp; 실제 시작일에 맞춰 옮기기<span class="opt-sub">${rangeLabel(x, to)} 예정으로 바꿔요 · 끝나는 날을 가늠할 수 있어요</span></button>` : ''}
+    <button class="opt" data-o="pm-clear">🧹&nbsp; 예정 표시 지우기<span class="opt-sub">실제 기록만 남겨요</span></button>
+    <button class="opt" data-o="pm-keep">그대로 두기<span class="opt-sub">예정과 실제를 비교해 볼 수 있어요</span></button>
+  `, { type: 'pmove', x, start: r.start, end: r.end });
+}
+
 function render() {
   // 드래그 중에 클라우드 스냅샷 등으로 다시 그리면 잡고 있던 행이 사라진다. 끝난 뒤로 미룬다.
   if (dnd.active) { dnd.dirty = true; return; }
   renderCalendar();
+  renderHealthRow();
   renderList();
   if (sheetCtx && sheetCtx.type === 'search') renderSearchResults();
 }
@@ -1696,6 +2056,101 @@ function sheetRoutineForm(rf, editId) {
   `, { type: 'rform', editId: editId || null });
 }
 
+// --- 건강 ---
+const EMOJIS = ['🩸','🤕','🤧','🌡️','💊','🤢','😵','😴','💧','⚡\uFE0F','🔥','🦷','👁️','❤️','🦴','💩','🍺','☕\uFE0F'];
+
+function sheetHealth() {
+  // 다른 기기 변경으로 다시 그려질 때 입력 중이던 값은 지킨다
+  const keepStart = $('#pe-start') ? $('#pe-start').value : '';
+  const keepLen = $('#pe-len') ? $('#pe-len').value : '';
+  const today = todayStr();
+  const ps = periodStats();
+
+  const facts = [];
+  if (ps.last) facts.push(`최근 시작 ${mdLabel(ps.last.start)}`);
+  if (ps.avgCycle) facts.push(`평균 주기 ${ps.avgCycle}일`);
+  if (ps.avgLen) facts.push(`보통 ${ps.avgLen}일`);
+  let status = facts.length ? facts.join(' · ') : '실제 생리 날짜를 기록하면 주기와 다음 예상일을 계산해 드려요';
+  if (ps.next) {
+    status += `\n다음 예상 ${mdLabel(ps.next)}쯤${ps.late ? ` · ${ps.late}일 지났어요` : ''}${ps.avgCycle ? '' : ' (주기 기록이 쌓일 때까지 28일로 계산)'}`;
+  }
+
+  const upcoming = contiguousRuns(logDates(HK_EXP)).filter(r => r.end >= today);
+  const upRows = upcoming.map(r => `
+    <div class="r-item">
+      <div class="r-info" style="align-items:center"><i class="lg-sw exp"></i><div class="r-txt">${rangeLabel(r.start, r.end)}</div></div>
+      <div class="r-actions"><button class="icon-btn danger" data-pxdel="${r.start}">지우기</button></div>
+    </div>`).join('');
+
+  const tRows = liveTrackers().map(t => {
+    const st = trackerStats(t.id);
+    const warn = t.limit > 0 && st.n30 >= t.limit;
+    const bits = [];
+    if (st.last) {
+      bits.push(`최근 30일 ${st.n30}번${t.limit ? ` (기준 ${t.limit}번)` : ''}`);
+      bits.push(`마지막 ${mdLabel(st.last)}`);
+      if (st.gap) bits.push(`평균 ${st.gap}일 간격`);
+    } else {
+      bits.push('아직 기록이 없어요' + (t.limit ? ` · 기준 ${t.limit}번` : ''));
+    }
+    return `
+    <div class="r-item">
+      <div class="r-info">
+        <span class="t-emo">${esc(t.emoji)}</span>
+        <div style="min-width:0">
+          <div class="r-txt">${esc(t.name)}</div>
+          <div class="r-freq${warn ? ' warn' : ''}">${bits.join(' · ')}</div>
+        </div>
+      </div>
+      <div class="r-actions">
+        <button class="icon-btn" data-tedit="${t.id}">수정</button>
+        <button class="icon-btn danger" data-tdel="${t.id}" data-confirm data-arm-label="삭제 확인">삭제</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  openSheet(`
+    <div class="sh-title">건강 기록</div>
+    <p class="hint">달력에서 날짜를 고르고, 할 일 목록 위의 버튼을 누르면 그날에 기록돼요. 달력에는 생리가 색칠로, 예정이 점선으로, 다른 항목은 아이콘으로 보여요.</p>
+
+    <label class="lbl">생리</label>
+    <div class="status" style="white-space:pre-wrap; line-height:1.6">${status}</div>
+
+    <label class="lbl" for="pe-start">예정일 한 번에 넣기</label>
+    <div class="h-form">
+      <input type="date" id="pe-start" class="inp" value="${keepStart || ps.next || state.selected}">
+      <label class="h-num"><input type="number" id="pe-len" class="inp" min="1" max="14" inputmode="numeric" value="${keepLen || ps.avgLen || 5}">일</label>
+    </div>
+    <button class="btn full ghostb" data-o="add-pexp" style="margin-top:8px">예정으로 표시</button>
+    ${upRows ? `<div class="r-list" style="margin-top:6px">${upRows}</div>` : ''}
+
+    <label class="lbl" style="margin-top:22px">주기 체크</label>
+    <div class="r-list">${tRows || '<div class="empty-sm" style="padding:10px 0 4px">코피처럼 얼마나 자주 생기는지 봐야 하는 걸 추가해 보세요</div>'}</div>
+    <button class="btn full" data-o="tracker-new">+ 항목 추가</button>
+  `, { type: 'health' });
+}
+
+function sheetTrackerForm(t, from) {
+  const used = new Set(liveTrackers().map(x => x.emoji));
+  const emoji = t ? t.emoji : (EMOJIS.find(e => !used.has(e)) || EMOJIS[0]);
+  const grid = EMOJIS.map(e => `<button class="emo${e === emoji ? ' on' : ''}" data-emo="${e}" aria-label="아이콘 ${e}">${e}</button>`).join('');
+  openSheet(`
+    <div class="sh-title">${t ? '항목 수정' : '주기 체크 항목 추가'}</div>
+    <label class="lbl" for="tf-name">이름</label>
+    <input id="tf-name" class="inp" placeholder="예: 코피" maxlength="12" value="${t ? esc(t.name) : ''}" autocomplete="off" enterkeyhint="done">
+    <label class="lbl">달력에 보일 아이콘</label>
+    <div class="emo-grid">${grid}</div>
+    <label class="lbl" for="tf-limit">알림 기준 (선택)</label>
+    <div class="h-limit">최근 30일 동안 <input type="number" id="tf-limit" class="inp" min="1" max="30" inputmode="numeric" value="${t && t.limit ? t.limit : ''}"> 번 이상이면 알려주기</div>
+    <p class="hint">기준에 닿으면 달력 아래에 빨간 줄로 알려줘요. 비워두면 알리지 않아요.</p>
+    <div class="row">
+      <button class="btn ghostb" data-o="tf-cancel">취소</button>
+      <button class="btn" data-o="save-tracker">저장</button>
+    </div>
+  `, { type: 'tform', id: t ? t.id : null, emoji, from: from || 'health' });
+  if (!t) $('#tf-name').focus();
+}
+
 // --- 확인 ---
 function sheetConfirm(title, desc, okLabel, cb) {
   openSheet(`
@@ -1814,7 +2269,7 @@ sheetEl.addEventListener('keydown', e => {
     return;
   }
   if (e.key !== 'Enter' || e.target.tagName === 'TEXTAREA') return;
-  const map = { 'edit-inp': 'save-edit', 'cf-name': 'save-cat' };
+  const map = { 'edit-inp': 'save-edit', 'cf-name': 'save-cat', 'tf-name': 'save-tracker' };
   const act = map[e.target.id];
   if (!act) return;
   e.preventDefault();
@@ -1830,6 +2285,12 @@ sheetEl.addEventListener('click', async e => {
     sheetEl.querySelectorAll('.sw').forEach(x => x.classList.remove('on'));
     sw.classList.add('on');
     if (sheetCtx) sheetCtx.color = sw.dataset.color;
+    return;
+  }
+  const em = e.target.closest('.emo');
+  if (em) {
+    sheetEl.querySelectorAll('.emo').forEach(x => x.classList.toggle('on', x === em));
+    if (sheetCtx) sheetCtx.emoji = em.dataset.emo;
     return;
   }
   const tg = e.target.closest('[data-rtoggle]');
@@ -1873,6 +2334,31 @@ sheetEl.addEventListener('click', async e => {
     store.deleteRoutine(rdel);
     toast('루틴을 삭제했어요');
     if (!cloud()) sheetRoutines();
+    return;
+  }
+
+  // 건강 시트
+  if (b.dataset.tedit) {
+    const t = state.htrackers.find(x => x.id === b.dataset.tedit);
+    if (t) sheetTrackerForm(t, 'health');
+    return;
+  }
+  if (b.dataset.tdel) {
+    const t = state.htrackers.find(x => x.id === b.dataset.tdel);
+    store.deleteTracker(b.dataset.tdel);
+    if (t) toast(`${t.emoji} ${t.name} 항목을 삭제했어요`);
+    sheetHealth();
+    return;
+  }
+  if (b.dataset.pxdel) {
+    const r = contiguousRuns(logDates(HK_EXP)).find(x => x.start === b.dataset.pxdel);
+    if (r) {
+      const ch = [];
+      for (let d = r.start; d <= r.end; d = addDaysStr(d, 1)) ch.push({ date: d, kind: HK_EXP, on: false });
+      store.setHealth(ch);
+      toast('예정 표시를 지웠어요');
+    }
+    sheetHealth();
     return;
   }
 
@@ -2007,6 +2493,57 @@ sheetEl.addEventListener('click', async e => {
     return;
   }
 
+  // 건강
+  if (sheetCtx.type === 'health') {
+    if (o === 'tracker-new') { sheetTrackerForm(null, 'health'); return; }
+    if (o === 'add-pexp') {
+      const start = $('#pe-start').value;
+      const len = parseInt($('#pe-len').value, 10);
+      if (!start) { toast('시작일을 골라주세요'); return; }
+      if (!(len >= 1 && len <= 14)) { toast('기간은 1~14일 사이로 적어주세요'); return; }
+      const ch = [];
+      for (let i = 0; i < len; i++) ch.push({ date: addDaysStr(start, i), kind: HK_EXP, on: true });
+      store.setHealth(ch);
+      toast(`${rangeLabel(start, addDaysStr(start, len - 1))}을 예정으로 표시했어요`);
+      $('#pe-start').value = ''; $('#pe-len').value = '';
+      sheetHealth();
+      return;
+    }
+    return;
+  }
+  if (sheetCtx.type === 'tform') {
+    if (o === 'tf-cancel') { if (sheetCtx.from === 'health') sheetHealth(); else closeSheet(); return; }
+    if (o === 'save-tracker') {
+      const name = $('#tf-name').value.trim();
+      if (!name) { toast('이름을 입력해 주세요'); return; }
+      const lim = parseInt($('#tf-limit').value, 10);
+      const data = { name, emoji: sheetCtx.emoji, limit: lim >= 1 ? Math.min(lim, 30) : null };
+      if (sheetCtx.id) { store.updateTracker(sheetCtx.id, data); toast('수정했어요'); }
+      else {
+        store.addTracker(data);
+        toast(`${data.emoji} ${name} 항목을 만들었어요 · 날짜를 고르고 눌러서 기록하세요`);
+      }
+      if (sheetCtx.from === 'health') sheetHealth(); else closeSheet();
+      return;
+    }
+    return;
+  }
+  if (sheetCtx.type === 'pmove') {
+    const { x, start, end } = sheetCtx;
+    if (o === 'pm-move' || o === 'pm-clear') {
+      const len = dayDiff(start, end) + 1;
+      const target = new Set();
+      if (o === 'pm-move') for (let i = 0; i < len; i++) target.add(addDaysStr(x, i));
+      const ch = [];
+      for (let d = start; d <= end; d = addDaysStr(d, 1)) if (!target.has(d)) ch.push({ date: d, kind: HK_EXP, on: false });
+      for (const d of target) ch.push({ date: d, kind: HK_EXP, on: true });
+      store.setHealth(ch);
+      toast(o === 'pm-move' ? `예정을 ${rangeLabel(x, addDaysStr(x, len - 1))}로 옮겼어요` : '예정 표시를 지웠어요');
+    }
+    closeSheet();
+    return;
+  }
+
   // 확인
   if (sheetCtx.type === 'confirm' && o === 'ok') {
     const cb = sheetCtx.cb;
@@ -2082,6 +2619,10 @@ sheetEl.addEventListener('click', async e => {
 // ---------- 리스트 이벤트 ----------
 const listEl = $('#list');
 listEl.addEventListener('click', e => {
+  const hc = e.target.closest('[data-h]');
+  if (hc) { toggleHealth(state.selected, hc.dataset.h); return; }
+  if (e.target.closest('[data-hopen]')) { sheetHealth(); return; }
+  if (e.target.closest('[data-hnew]')) { sheetTrackerForm(null, 'list'); return; }
   const tg = e.target.closest('[data-toggle]');
   if (tg) {
     const t = state.todos.find(x => x.id === tg.dataset.toggle);
@@ -2285,6 +2826,10 @@ $('#cal-today').addEventListener('click', () => {
   subTodosRange();
   render();
 });
+
+const legendEl = $('#cal-legend');
+legendEl.addEventListener('click', sheetHealth);
+legendEl.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sheetHealth(); } });
 
 $('#btn-routines').addEventListener('click', sheetRoutines);
 $('#btn-settings').addEventListener('click', sheetSettings);
