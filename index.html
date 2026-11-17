@@ -217,6 +217,39 @@ input,select,textarea{font-family:inherit; color:inherit;}
   font-size:12.5px; color:var(--sub); margin-top:4px; white-space:pre-wrap; word-break:break-all;
   border-left:2px solid #ececee; padding-left:8px;
 }
+/* ---------- 세부 항목 (할 일 안의 체크 항목) ---------- */
+.sc{font-size:11.5px; font-weight:700; color:var(--sub); margin-left:6px;}
+.subs{display:flex; flex-direction:column; margin-top:3px;}
+.sub{display:flex; align-items:flex-start; gap:8px; width:100%; text-align:left; padding:5px 0; font-size:13.5px; font-weight:500; color:#3a3c40;}
+.schk{
+  flex:none; width:16px; height:16px; margin-top:2px; border-radius:5px;
+  border:1.8px solid #d8dade; display:inline-flex; align-items:center; justify-content:center;
+  transition:background .15s, border-color .15s;
+}
+.schk::after{
+  content:''; width:4px; height:7px; margin-top:-1.5px;
+  border:2px solid #fff; border-top:0; border-left:0; transform:rotate(42deg);
+  opacity:0; transition:opacity .12s;
+}
+.sub:hover .schk{border-color:#b9bcc2;}
+.sub.on .schk{background:var(--c); border-color:var(--c);}
+.sub.on .schk::after{opacity:1;}
+.sub-t{flex:1; min-width:0; word-break:break-all;}
+.sub.on .sub-t{color:#b9bcc2;}
+.g-subs{font-size:12.5px; color:var(--sub); margin-top:2px; word-break:break-all;}
+/* 세부 항목 편집 (할 일 메뉴 · 루틴 폼 공용) */
+.sub-ed{display:flex; flex-direction:column; gap:7px; margin-top:8px;}
+.sub-ed:empty{display:none;}
+.sub-row{display:flex; align-items:center; gap:6px;}
+.sub-row .inp{flex:1; min-width:0; padding:10px 13px;}
+.sub-x{flex:none; width:34px; height:34px; border-radius:10px; color:var(--sub); font-size:18px; line-height:1;}
+.sub-x:hover{background:#f6f6f7; color:var(--danger);}
+.sub-add{
+  display:block; width:100%; margin-top:7px; padding:10px; border-radius:13px;
+  border:1.5px dashed var(--line2); color:var(--sub); font-size:13.5px; font-weight:700;
+}
+.sub-add:hover{color:var(--txt); border-color:#b9bcc2; background:#fafafa;}
+
 /* ---------- drag to reorder ---------- */
 .t-drag{
   flex:none; align-self:center; width:28px; height:28px; margin-left:2px;
@@ -1084,6 +1117,11 @@ function upsert(arr, obj) { const i = arr.findIndex(x => x.id === obj.id); if (i
 function commitLocal() { saveLocal(); render(); }
 const liveCats = () => state.cats.filter(c => !c.deleted);
 
+// 세부 항목: 할 일 하나 안에 들어 있는 체크 항목. 할 일 문서 안에 subs: [{ id, text, done }] 로 저장한다.
+// (루틴은 subs: [{ id, text }] 를 갖고 있다가, 할 일로 추가될 때 복사해 준다)
+const subsOf = t => (t && Array.isArray(t.subs)) ? t.subs : [];
+const freshSubs = list => (list || []).filter(s => s && s.text).map(s => ({ id: uid(), text: s.text, done: false }));
+
 // ---------- store: 로컬이 항상 기준. 즉시 저장·표시하고, 클라우드엔 뒤에서 복사한다 ----------
 const store = {
   addCategory({ name, color }) {
@@ -1104,8 +1142,8 @@ const store = {
     for (const x of state.routines) if (x.categoryId === id && !x.deleted) { x.deleted = true; x.updatedAt = bump(x, t); pushDoc('routines', x); }
     commitLocal();
   },
-  addTodo({ categoryId, text, date = state.selected, routineId = null, memo = '' }) {
-    const t = { id: uid(), date, categoryId, text, done: false, memo, routineId, order: Date.now(), createdAt: Date.now(), updatedAt: stamp(), deleted: false };
+  addTodo({ categoryId, text, date = state.selected, routineId = null, memo = '', subs = [] }) {
+    const t = { id: uid(), date, categoryId, text, done: false, memo, routineId, subs: freshSubs(subs), order: Date.now(), createdAt: Date.now(), updatedAt: stamp(), deleted: false };
     upsert(state.todos, t); commitLocal(); pushDoc('todos', t);
     return t;
   },
@@ -1114,7 +1152,7 @@ const store = {
     const base = Date.now();
     const made = list.map((x, i) => ({
       id: uid(), date: x.date || state.selected, categoryId: x.categoryId, text: x.text,
-      done: false, memo: x.memo || '', routineId: x.routineId || null,
+      done: false, memo: x.memo || '', routineId: x.routineId || null, subs: freshSubs(x.subs),
       order: base + i, createdAt: base + i, updatedAt: stamp(), deleted: false,
     }));
     for (const t of made) upsert(state.todos, t);
@@ -1126,6 +1164,21 @@ const store = {
     const t = state.todos.find(x => x.id === id); if (!t) return;
     Object.assign(t, patch, { updatedAt: bump(t) });
     commitLocal(); pushDoc('todos', t);
+  },
+  // 할 일 체크: 세부 항목이 있으면 전부 함께 체크/해제한다
+  toggleTodo(id) {
+    const t = state.todos.find(x => x.id === id); if (!t) return;
+    const done = !t.done;
+    const patch = { done };
+    if (subsOf(t).length) patch.subs = t.subs.map(s => ({ ...s, done }));
+    this.updateTodo(id, patch);
+  },
+  // 세부 항목 체크: 전부 체크되면 할 일도 완료, 하나라도 빠지면 미완료
+  toggleSub(id, sid) {
+    const t = state.todos.find(x => x.id === id); if (!t) return;
+    const subs = subsOf(t).map(s => s.id === sid ? { ...s, done: !s.done } : s);
+    if (!subs.length) return;
+    this.updateTodo(id, { subs, done: subs.every(s => s.done) });
   },
   deleteTodo(id) {
     const t = state.todos.find(x => x.id === id); if (!t) return;
@@ -1451,11 +1504,24 @@ const GRIP = `<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor
   <circle cx="2.6" cy="8" r="1.35"/><circle cx="7.4" cy="8" r="1.35"/>
   <circle cx="2.6" cy="12.6" r="1.35"/><circle cx="7.4" cy="12.6" r="1.35"/></svg>`;
 
+const subsHtml = t => {
+  const subs = subsOf(t);
+  if (!subs.length) return '';
+  return `<div class="subs">${subs.map(s => `
+        <button class="sub${s.done ? ' on' : ''}" data-sub="${t.id}" data-sid="${esc(s.id)}" aria-pressed="${!!s.done}"><i class="schk"></i><span class="sub-t">${esc(s.text)}</span></button>`).join('')}
+      </div>`;
+};
+const subCount = t => {
+  const subs = subsOf(t);
+  return subs.length ? `<span class="sc">${subs.filter(s => s.done).length}/${subs.length}</span>` : '';
+};
+
 const todoRow = (t, c) => `
   <div class="todo${t.done ? ' done' : ''}${state.flashId === t.id ? ' hl' : ''}" style="--c:${c}" data-id="${t.id}" data-cid="${t.categoryId}">
     <button class="chk" data-toggle="${t.id}" aria-label="완료 표시"></button>
     <div class="t-body" data-menu="${t.id}">
-      <div class="t-txt">${esc(t.text)}${t.routineId ? '<span class="rt">↻</span>' : ''}</div>
+      <div class="t-txt">${esc(t.text)}${subCount(t)}${t.routineId ? '<span class="rt">↻</span>' : ''}</div>
+      ${subsHtml(t)}
       ${t.memo ? `<div class="t-memo">${esc(t.memo)}</div>` : ''}
     </div>
     <button class="t-drag" data-drag="${t.id}" title="드래그해서 순서 변경" aria-label="순서 변경 손잡이">${GRIP}</button>
@@ -1464,7 +1530,7 @@ const todoRow = (t, c) => `
 const ghostRow = (r, c) => `
   <div class="todo ghost" style="--c:${c}">
     <span class="chk"></span>
-    <div class="t-body"><div class="t-txt">${esc(r.text)}<span class="rt">↻ ${freqLabel(r)}</span></div></div>
+    <div class="t-body"><div class="t-txt">${esc(r.text)}<span class="rt">↻ ${freqLabel(r)}</span></div>${subsOf(r).length ? `<div class="g-subs">${esc(subsOf(r).map(s => s.text).join(' · '))}</div>` : ''}</div>
     <button class="ghost-add" data-ghost="${r.id}" title="할 일로 추가">+</button>
   </div>`;
 
@@ -1484,7 +1550,7 @@ function ghostList(catId) {
 function addGhosts(catId) {
   const list = ghostList(catId);
   if (!list.length) { toast('추가할 루틴이 없어요'); return; }
-  store.addTodos(list.map(r => ({ categoryId: r.categoryId, text: r.text, routineId: r.id })));
+  store.addTodos(list.map(r => ({ categoryId: r.categoryId, text: r.text, routineId: r.id, subs: subsOf(r) })));
   toast(`루틴 ${list.length}개를 할 일로 추가했어요`);
 }
 
@@ -1644,6 +1710,38 @@ const pillHtml = (cat, sm) => cat
   ? `<span class="cat-pill${sm ? ' sm' : ''}" style="color:${cat.color}; background:${cat.color}1a">${esc(cat.name)}</span>`
   : '';
 
+// --- 세부 항목 편집기 (할 일 메뉴 · 루틴 폼 공용) ---
+const subRowHtml = s => `<div class="sub-row" data-sid="${esc(s.id)}"><input class="inp sub-inp" value="${esc(s.text)}" placeholder="항목 이름" autocomplete="off" enterkeyhint="next"><button class="sub-x" data-subx aria-label="항목 삭제">×</button></div>`;
+const subEditorHtml = list => `<div class="sub-ed" id="sub-ed">${list.map(subRowHtml).join('')}</div><button class="sub-add" data-subadd>+ 항목 추가</button>`;
+function readSubEditor() {
+  return [...sheetEl.querySelectorAll('#sub-ed .sub-row')]
+    .map(r => ({ id: r.dataset.sid, text: r.querySelector('.sub-inp').value.trim() }))
+    .filter(s => s.text);
+}
+function addSubRow(after) {
+  const ed = $('#sub-ed');
+  if (!ed) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = subRowHtml({ id: uid(), text: '' });
+  const row = tmp.firstChild;
+  ed.insertBefore(row, after ? after.nextSibling : null);
+  row.querySelector('.sub-inp').focus();
+}
+
+function sheetSubs(t, fs) {
+  const subs = subsOf(t);
+  openSheet(`
+    <div class="sh-title">세부 항목</div>
+    <p class="hint">「${esc(t.text)}」 안에서 하나씩 따로 체크할 항목이에요. 전부 체크하면 할 일이 완료되고, 할 일 개수는 그대로 1개예요.</p>
+    ${subEditorHtml(subs.length ? subs : [{ id: uid(), text: '' }])}
+    <div class="row">
+      <button class="btn ghostb" data-o="cancel">취소</button>
+      <button class="btn" data-o="save-subs">저장</button>
+    </div>
+  `, { type: 'subs', id: t.id, fromSearch: !!fs });
+  if (!subs.length) { const i = sheetEl.querySelector('.sub-inp'); if (i) i.focus(); }
+}
+
 // --- 할 일 메뉴 ---
 // fs(fromSearch)가 참이면 검색 결과에서 열린 것 → 작업을 마치면 검색 결과로 돌아간다
 function sheetTodoMenu(t, fs) {
@@ -1651,6 +1749,7 @@ function sheetTodoMenu(t, fs) {
   openSheet(`
     <div class="sh-head">${pillHtml(cat, true)}<div class="sh-title">${esc(t.text)}</div></div>
     <button class="opt" data-o="edit">✏️&nbsp; 수정하기</button>
+    <button class="opt" data-o="subs">☑️&nbsp; 세부 항목<span class="opt-sub">${subsOf(t).length ? esc(subsOf(t).map(s => s.text).join(' · ')) : '할 일 안에 따로 체크할 항목을 나눠요'}</span></button>
     <button class="opt danger" data-o="del" data-confirm>🗑️&nbsp; 삭제하기</button>
     <button class="opt" data-o="memo">📝&nbsp; 메모${t.memo ? '<span class="opt-sub">' + esc(t.memo.length > 40 ? t.memo.slice(0, 40) + '…' : t.memo) + '</span>' : ''}</button>
     <button class="opt" data-o="postpone">⏭️&nbsp; 다른 날로 미루기<span class="opt-sub">할 일을 고른 날짜로 옮겨요 (메모도 같이)</span></button>
@@ -1745,7 +1844,7 @@ const searchTerms = () => searchUI.q.toLowerCase().split(/\s+/).filter(Boolean);
 
 function todoMatches(t, terms) {
   if (!terms.length) return true;
-  const raw = String(t.text || '') + '\n' + String(t.memo || '');
+  const raw = String(t.text || '') + '\n' + String(t.memo || '') + '\n' + subsOf(t).map(s => s.text).join('\n');
   const low = raw.toLowerCase();
   let cho = null;
   return terms.every(k => isCho(k) ? (cho ||= choseong(raw)).includes(k) : low.includes(k));
@@ -1831,11 +1930,14 @@ function searchItem(t, terms) {
   const cat = state.cats.find(c => c.id === t.categoryId);
   const c = cat ? cat.color : '#c7cad0';
   const memo = memoSnippet(t.memo, terms);
+  const subs = subsOf(t);
+  const subLine = subs.length ? hl(subs.map(s => s.text).join(' · '), terms) : '';
   return `
     <button class="s-item${t.done ? ' done' : ''}" data-go="${t.id}">
       <span class="s-dot" style="background:${c}"></span>
       <span class="s-body">
         <span class="s-txt">${hl(t.text, terms)}${t.routineId ? '<span class="rt">↻</span>' : ''}${cat ? `<span class="s-cat">${esc(cat.name)}</span>` : ''}</span>
+        ${subLine ? `<span class="s-memo">☑ ${subLine}</span>` : ''}
         ${memo ? `<span class="s-memo">${memo}</span>` : ''}
       </span>
     </button>`;
@@ -1990,6 +2092,7 @@ function sheetRoutines() {
         <div style="min-width:0">
           <div class="r-txt">${esc(r.text)}</div>
           <div class="r-freq">${freqLabel(r)} · ${r.start || ''}부터</div>
+          ${subsOf(r).length ? `<div class="r-freq">☑ ${esc(subsOf(r).map(s => s.text).join(' · '))}</div>` : ''}
         </div>
       </div>
       <div class="r-actions">
@@ -2015,6 +2118,7 @@ function readRoutineForm() {
     weekdays: [...sheetEl.querySelectorAll('.wchip.on')].map(x => +x.dataset.w),
     monthDays: [...sheetEl.querySelectorAll('.mday.on')].map(x => +x.dataset.d),
     start: ($('#rf-start') && $('#rf-start').value) || todayStr(),
+    subs: readSubEditor(),
   };
 }
 
@@ -2024,7 +2128,7 @@ function sheetRoutineForm(rf, editId) {
   rf = rf || {
     categoryId: lc[0] ? lc[0].id : null,
     text: '', freq: 'daily',
-    weekdays: [t.getDay()], monthDays: [t.getDate()], start: todayStr(),
+    weekdays: [t.getDay()], monthDays: [t.getDate()], start: todayStr(), subs: [],
   };
   if (!rf.weekdays.length) rf.weekdays = [t.getDay()];
   if (!rf.monthDays.length) rf.monthDays = [t.getDate()];
@@ -2038,6 +2142,9 @@ function sheetRoutineForm(rf, editId) {
     <select id="rf-cat" class="inp">${catOpts}</select>
     <label class="lbl" for="rf-text">할 일</label>
     <input id="rf-text" class="inp" placeholder="예: 운동 30분" value="${esc(rf.text)}" autocomplete="off">
+    <label class="lbl">세부 항목 (선택)</label>
+    ${subEditorHtml(rf.subs || [])}
+    <p class="hint">할 일 하나 안에서 하나씩 따로 체크할 수 있어요. 예) 「게임 출석체크」 안에 A · B · C</p>
     <label class="lbl" for="rf-freq">반복 주기</label>
     <select id="rf-freq" class="inp">
       <option value="daily"${sel('daily')}>매일</option>
@@ -2268,6 +2375,23 @@ sheetEl.addEventListener('keydown', e => {
     if (matchMedia('(pointer:coarse)').matches) e.target.blur();
     return;
   }
+  // 세부 항목 입력칸: Enter로 다음 칸(없으면 새 칸), 빈 칸에서 Backspace로 칸 지우기
+  if (e.target.classList && e.target.classList.contains('sub-inp')) {
+    if (e.isComposing || e.keyCode === 229) return; // 한글 조합 중의 Enter는 무시
+    const row = e.target.closest('.sub-row');
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!e.target.value.trim()) return;
+      const nx = row.nextElementSibling;
+      if (nx) nx.querySelector('.sub-inp').focus(); else addSubRow(row);
+    } else if (e.key === 'Backspace' && !e.target.value && row.previousElementSibling) {
+      e.preventDefault();
+      const pv = row.previousElementSibling;
+      row.remove();
+      pv.querySelector('.sub-inp').focus();
+    }
+    return;
+  }
   if (e.key !== 'Enter' || e.target.tagName === 'TEXTAREA') return;
   const map = { 'edit-inp': 'save-edit', 'cf-name': 'save-cat', 'tf-name': 'save-tracker' };
   const act = map[e.target.id];
@@ -2303,6 +2427,10 @@ sheetEl.addEventListener('click', async e => {
   const b = e.target.closest('button');
   if (!b) return;
 
+  // 세부 항목 편집기
+  if ('subadd' in b.dataset) { addSubRow(); return; }
+  if ('subx' in b.dataset) { const r = b.closest('.sub-row'); if (r) r.remove(); return; }
+
   // 위험 버튼 2단계 확인
   if ('confirm' in b.dataset && !('armed' in b.dataset)) {
     b.dataset.armed = '1';
@@ -2326,6 +2454,7 @@ sheetEl.addEventListener('click', async e => {
       categoryId: r.categoryId, text: r.text || '', freq: r.freq || 'daily',
       weekdays: [...(r.weekdays || [])], monthDays: [...(r.monthDays || [])],
       start: r.start || todayStr(),
+      subs: subsOf(r).map(s => ({ id: s.id, text: s.text })),
     }, r.id);
     return;
   }
@@ -2397,12 +2526,13 @@ sheetEl.addEventListener('click', async e => {
     if (!t) { finishTodoAction(); return; }
     if (o === 'back-search') sheetSearch();
     else if (o === 'edit') sheetEditTodo(t, fs);
+    else if (o === 'subs') sheetSubs(t, fs);
     else if (o === 'memo') sheetMemo(t, fs);
     else if (o === 'del') { store.deleteTodo(t.id); toast('삭제했어요'); finishTodoAction(); }
     else if (o === 'postpone') sheetPostpone(t, fs);
     else if (o === 'tomorrow') {
       if (t.memo) { sheetCopyTomorrow(t, fs); return; }
-      store.addTodo({ categoryId: t.categoryId, text: t.text, date: addDaysStr(t.date, 1) });
+      store.addTodo({ categoryId: t.categoryId, text: t.text, date: addDaysStr(t.date, 1), subs: subsOf(t) });
       const nd = parseDate(addDaysStr(t.date, 1));
       toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가했어요`);
       finishTodoAction();
@@ -2418,6 +2548,19 @@ sheetEl.addEventListener('click', async e => {
     finishTodoAction();
     return;
   }
+  if (sheetCtx.type === 'subs' && o === 'save-subs') {
+    const t = state.todos.find(x => x.id === sheetCtx.id);
+    if (t) {
+      const old = new Map(subsOf(t).map(s => [s.id, s]));
+      const subs = readSubEditor().map(s => ({ id: s.id, text: s.text, done: !!(old.get(s.id) || {}).done }));
+      const patch = { subs };
+      if (subs.length) patch.done = subs.every(s => s.done);
+      store.updateTodo(t.id, patch);
+      if (sheetCtx.fromSearch) toast('세부 항목을 저장했어요');
+    }
+    finishTodoAction();
+    return;
+  }
   if (sheetCtx.type === 'memo' && o === 'save-memo') {
     store.updateTodo(sheetCtx.id, { memo: $('#memo-inp').value.trim() });
     if (sheetCtx.fromSearch) toast('메모를 저장했어요');
@@ -2430,7 +2573,7 @@ sheetEl.addEventListener('click', async e => {
     const t = state.todos.find(x => x.id === sheetCtx.id);
     if (t) {
       const withMemo = $('#pick-memo') && $('#pick-memo').checked;
-      store.addTodo({ categoryId: t.categoryId, text: t.text, date: v, memo: withMemo ? (t.memo || '') : '' });
+      store.addTodo({ categoryId: t.categoryId, text: t.text, date: v, memo: withMemo ? (t.memo || '') : '', subs: subsOf(t) });
       const nd = parseDate(v);
       toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가했어요`);
     }
@@ -2441,7 +2584,7 @@ sheetEl.addEventListener('click', async e => {
     const t = state.todos.find(x => x.id === sheetCtx.id);
     if (t) {
       const nds = addDaysStr(t.date, 1);
-      store.addTodo({ categoryId: t.categoryId, text: t.text, date: nds, memo: o === 'copy-memo' ? (t.memo || '') : '' });
+      store.addTodo({ categoryId: t.categoryId, text: t.text, date: nds, memo: o === 'copy-memo' ? (t.memo || '') : '', subs: subsOf(t) });
       const nd = parseDate(nds);
       toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일에 추가했어요`);
     }
@@ -2454,7 +2597,10 @@ sheetEl.addEventListener('click', async e => {
     const t = state.todos.find(x => x.id === sheetCtx.id);
     if (t) {
       if (v === t.date) { toast('지금과 같은 날짜예요'); return; }
-      store.updateTodo(t.id, { date: v, done: false });
+      // 다 끝낸 걸 옮기면 세부 항목도 처음부터, 하다 만 거면 체크해 둔 건 그대로 가져간다
+      const patch = { date: v, done: false };
+      if (t.done && subsOf(t).length) patch.subs = t.subs.map(s => ({ ...s, done: false }));
+      store.updateTodo(t.id, patch);
       const nd = parseDate(v);
       toast(`${nd.getMonth() + 1}월 ${nd.getDate()}일로 미뤘어요`);
     }
@@ -2487,7 +2633,19 @@ sheetEl.addEventListener('click', async e => {
     if (!f.text) { toast('할 일 내용을 입력해 주세요'); return; }
     if ((f.freq === 'weekly' || f.freq === 'biweekly') && !f.weekdays.length) { toast('요일을 선택해 주세요'); return; }
     if (f.freq === 'monthly' && !f.monthDays.length) { toast('날짜를 선택해 주세요'); return; }
-    if (sheetCtx.editId) { store.updateRoutine(sheetCtx.editId, f); toast('루틴을 수정했어요'); }
+    if (sheetCtx.editId) {
+      const rid = sheetCtx.editId;
+      store.updateRoutine(rid, f);
+      // 오늘 이후로 이미 추가해 둔, 아직 안 끝낸 할 일에는 새 세부 항목을 바로 넣어 준다
+      let n = 0;
+      if (f.subs.length) {
+        const td = todayStr();
+        for (const t of state.todos.filter(x => !x.deleted && x.routineId === rid && x.date >= td && !x.done && !subsOf(x).length)) {
+          store.updateTodo(t.id, { subs: freshSubs(f.subs) }); n++;
+        }
+      }
+      toast(n ? `루틴을 수정했어요 · 이미 추가한 할 일 ${n}개에도 세부 항목을 넣었어요` : '루틴을 수정했어요');
+    }
     else { store.addRoutine(f); toast('루틴을 추가했어요'); }
     sheetRoutines();
     return;
@@ -2626,9 +2784,11 @@ listEl.addEventListener('click', e => {
   const tg = e.target.closest('[data-toggle]');
   if (tg) {
     const t = state.todos.find(x => x.id === tg.dataset.toggle);
-    if (t) store.updateTodo(t.id, { done: !t.done });
+    if (t) store.toggleTodo(t.id);
     return;
   }
+  const sb = e.target.closest('[data-sub]');
+  if (sb) { store.toggleSub(sb.dataset.sub, sb.dataset.sid); return; }
   const ga = e.target.closest('[data-addall]');
   if (ga) {
     const v = ga.dataset.addall;
@@ -2638,7 +2798,7 @@ listEl.addEventListener('click', e => {
   const gh = e.target.closest('[data-ghost]');
   if (gh) {
     const r = state.routines.find(x => x.id === gh.dataset.ghost);
-    if (r) { store.addTodo({ categoryId: r.categoryId, text: r.text, routineId: r.id }); toast('할 일로 추가했어요'); }
+    if (r) { store.addTodo({ categoryId: r.categoryId, text: r.text, routineId: r.id, subs: subsOf(r) }); toast('할 일로 추가했어요'); }
     return;
   }
   const mn = e.target.closest('[data-menu]');
